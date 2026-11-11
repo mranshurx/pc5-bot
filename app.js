@@ -21,12 +21,15 @@ const DEFAULT_PRICING = () => ({
   resellerFee: 15000,
   unlimitedMultiplier: 1.5,
   plans: [
-    { id: '1h',   hours: 1,      label: '1 Hour',   retail: 500,   reseller: 300,   on: true },
-    { id: '3h',   hours: 3,      label: '3 Hours',  retail: 1200,  reseller: 800,   on: true },
-    { id: '1d',   hours: 24,     label: '1 Day',    retail: 2500,  reseller: 1800,  on: true },
-    { id: '7d',   hours: 168,    label: '7 Days',   retail: 9900,  reseller: 7000,  on: true },
-    { id: '30d',  hours: 720,    label: '30 Days',  retail: 29900, reseller: 22000, on: true },
-    { id: 'life', hours: 999999, label: 'Lifetime', retail: 59900, reseller: 45000, on: true }
+    { id: '1h',  hours: 1,   label: '1 Hour',   retail: 700,   reseller: 500,   on: true },
+    { id: '3h',  hours: 3,   label: '3 Hours',  retail: 900,   reseller: 700,   on: true },
+    { id: '6h',  hours: 6,   label: '6 Hours',  retail: 1200,  reseller: 900,   on: true },
+    { id: '12h', hours: 12,  label: '12 Hours', retail: 1400,  reseller: 1000,  on: true },
+    { id: '1d',  hours: 24,  label: '1 Day',    retail: 1900,  reseller: 1400,  on: true },
+    { id: '3d',  hours: 72,  label: '3 Days',   retail: 3200,  reseller: 2400,  on: true },
+    { id: '7d',  hours: 168, label: '7 Days',   retail: 5500,  reseller: 4200,  on: true },
+    { id: '14d', hours: 336, label: '14 Days',  retail: 8200,  reseller: 6200,  on: true },
+    { id: '30d', hours: 720, label: '30 Days',  retail: 14900, reseller: 11200, on: true }
   ]
 });
 
