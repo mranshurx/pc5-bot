@@ -12,6 +12,7 @@ const ADMIN_IDS = (process.env.ADMIN_IDS || '').split(',').map(s => Number(s.tri
 const PANEL_PASSWORD = process.env.PANEL_PASSWORD || 'admin';
 const DATA_DIR = path.resolve(process.env.DATA_DIR || './data');
 const PORT = Number(process.env.PORT || 8080);
+const QR_FILE = path.join(__dirname, 'public', 'qr.jpg');
 const isAdmin = id => ADMIN_IDS.includes(Number(id));
 
 if (!BOT_TOKEN) { console.error('BOT_TOKEN missing in .env'); process.exit(1); }
@@ -56,7 +57,13 @@ function blank() {
       upiName: process.env.UPI_NAME || 'PC5 ANDROID',
       botMaintenance: false,
       maintenanceMsg: 'Bot is under maintenance. Try again shortly.',
-      minTopup: 2000, maxTopup: 500000
+      minTopup: 2000, maxTopup: 500000,
+      githubToken: process.env.GITHUB_TOKEN || '',
+      githubRepo: process.env.GITHUB_REPO || '',
+      githubPath: process.env.GITHUB_PATH || 'stock.json',
+      githubBranch: process.env.GITHUB_BRANCH || 'main',
+      githubLastSync: '',
+      githubLastError: ''
     },
     counters: { nextOrder: 1001 },
     log: []
@@ -135,6 +142,105 @@ function claimKey(s, plan, dev, uid, oid) {
   return hit;
 }
 
+/* ================= GITHUB STOCK SYNC ================= */
+const ghConfigured = () => !!(state.settings.githubToken && state.settings.githubRepo && state.settings.githubPath);
+
+const ghContentsUrl = (s, withRef) => {
+  const p = String(s.githubPath || '').split('/').filter(Boolean).map(encodeURIComponent).join('/');
+  const base = `https://api.github.com/repos/${s.githubRepo}/contents/${p}`;
+  return withRef ? `${base}?ref=${encodeURIComponent(s.githubBranch || 'main')}` : base;
+};
+
+function ghFetch(method, url, body) {
+  return fetch(url, {
+    method,
+    headers: {
+      Authorization: `Bearer ${state.settings.githubToken}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'pc5-bot',
+      ...(body ? { 'Content-Type': 'application/json' } : {})
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+}
+
+async function doPush(reason) {
+  const s = state.settings;
+  if (!ghConfigured()) return { ok: false, error: 'not configured' };
+  try {
+    let sha = null;
+    const head = await ghFetch('GET', ghContentsUrl(s, true));
+    if (head.ok) sha = (await head.json()).sha;
+    else if (head.status !== 404) throw new Error('read ' + head.status);
+
+    const payload = JSON.stringify({
+      updatedAt: new Date().toISOString(),
+      reason,
+      stock: state.stock
+    }, null, 2);
+
+    const put = await ghFetch('PUT', ghContentsUrl(s, false), {
+      message: `stock sync: ${reason}`,
+      content: Buffer.from(payload).toString('base64'),
+      branch: s.githubBranch || 'main',
+      ...(sha ? { sha } : {})
+    });
+    if (!put.ok) throw new Error('write ' + put.status + ' ' + (await put.text()).slice(0, 120));
+
+    await mutate(x => { x.settings.githubLastSync = new Date().toISOString(); x.settings.githubLastError = ''; });
+    return { ok: true };
+  } catch (e) {
+    const msg = String(e.message || e).slice(0, 200);
+    await mutate(x => { x.settings.githubLastError = msg; });
+    return { ok: false, error: msg };
+  }
+}
+
+let ghBusy = Promise.resolve();
+const pushStock = reason => {
+  ghBusy = ghBusy.then(() => doPush(reason), () => doPush(reason));
+  return ghBusy;
+};
+
+let ghTimer = null;
+function schedulePush(reason) {
+  if (!ghConfigured()) return;
+  clearTimeout(ghTimer);
+  ghTimer = setTimeout(() => { pushStock(reason).catch(() => {}); }, 1200);
+}
+
+async function pullStock() {
+  const s = state.settings;
+  if (!ghConfigured()) throw new Error('not configured');
+  const r = await ghFetch('GET', ghContentsUrl(s, true));
+  if (r.status === 404) return { added: 0 };
+  if (!r.ok) throw new Error('read ' + r.status);
+
+  const j = await r.json();
+  let data;
+  try { data = JSON.parse(Buffer.from(j.content || '', 'base64').toString('utf8')); }
+  catch { throw new Error('remote file is not valid json'); }
+
+  const remote = (data && data.stock) || {};
+  const added = await mutate(x => {
+    let n = 0;
+    for (const [k, v] of Object.entries(remote)) {
+      if (x.stock[k] || !v || !v.planId) continue;
+      x.stock[k] = {
+        key: k, planId: v.planId,
+        deviceLimit: v.deviceLimit === 'unlimited' ? 'unlimited' : 'single',
+        status: 'available', addedAt: new Date().toISOString(),
+        soldAt: null, soldTo: null, orderId: null
+      };
+      n++;
+    }
+    log('github', `pulled ${n} keys`);
+    return n;
+  });
+  return { added };
+}
+
 /* ================= BOT ================= */
 const bot = new Telegraf(BOT_TOKEN);
 const pending = new Map();
@@ -142,8 +248,29 @@ const pending = new Map();
 const BTN = { buy: '🛒 Buy Key', credit: '➕ Add Credit', balance: '💰 Balance', mykeys: '🔑 My Keys', reseller: '🏪 Reseller', help: '❓ Help' };
 const menu = () => Markup.keyboard([[BTN.buy, BTN.credit], [BTN.balance, BTN.mykeys], [BTN.reseller, BTN.help]]).resize();
 
+const PAY_MSG = 'PAY THE SELECTED AMOUNT AND UPLOAD THE PAYMENT SCREENSHOT HERE';
+
 async function notifyAdmins(text, opts = {}) {
   for (const a of ADMIN_IDS) bot.telegram.sendMessage(a, text, opts).catch(() => {});
+}
+
+/* sends public/qr.jpg; falls back to a generated UPI QR, then to plain text */
+async function sendPaymentQr(ctx, caption, upiAmount, note) {
+  if (fs.existsSync(QR_FILE)) {
+    try {
+      return await ctx.replyWithPhoto({ source: fs.createReadStream(QR_FILE) }, { caption, parse_mode: 'Markdown' });
+    } catch (e) {
+      console.warn('qr.jpg failed:', e.message);
+    }
+  }
+  if (state.settings.upiId) {
+    try {
+      const upi = `upi://pay?pa=${encodeURIComponent(state.settings.upiId)}&pn=${encodeURIComponent(state.settings.upiName)}&am=${(upiAmount / 100).toFixed(2)}&cu=INR&tn=${encodeURIComponent(note)}`;
+      const png = await QRCode.toBuffer(upi, { width: 640, margin: 1 });
+      return await ctx.replyWithPhoto({ source: png }, { caption, parse_mode: 'Markdown' });
+    } catch {}
+  }
+  return ctx.reply(caption, { parse_mode: 'Markdown' });
 }
 
 bot.use(async (ctx, next) => {
@@ -162,7 +289,7 @@ bot.start(async ctx => {
 });
 
 bot.help(async ctx => ctx.reply(
-  `*How it works*\n\n1. Add Credit — pick amount, pay the UPI QR, send screenshot.\n2. We verify and credit you manually.\n3. Buy Key — pick plan and device limit.\n\n*Reseller* — pay ${inr(state.pricing.resellerFee)} once, then every key is at reseller rate.`,
+  `*How it works*\n\n1. Add Credit — pick amount, pay the QR, send screenshot.\n2. We verify and credit you manually.\n3. Buy Key — pick plan and device limit.\n\n*Reseller* — pay ${inr(state.pricing.resellerFee)} once, then every key is at reseller rate.`,
   { parse_mode: 'Markdown', ...menu() }
 ));
 
@@ -206,16 +333,16 @@ async function makeTopup(ctx, amount) {
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), note: ''
     };
     log(u.id, `topup ${id} ${inr(amount)}`);
-    return { order: s.orders[id], upiId: s.settings.upiId, upiName: s.settings.upiName };
+    return { order: s.orders[id], upiId: s.settings.upiId };
   });
 
-  if (!out.upiId) return ctx.reply('UPI not configured. Ping support.');
-  const upi = `upi://pay?pa=${encodeURIComponent(out.upiId)}&pn=${encodeURIComponent(out.upiName)}&am=${(amount / 100).toFixed(2)}&cu=INR&tn=PC5-${out.order.id}`;
-  const png = await QRCode.toBuffer(upi, { width: 640, margin: 1 });
-  await ctx.replyWithPhoto({ source: png }, {
-    caption: `*Order #${out.order.id}*\nAmount: *${inr(amount)}*\nUPI: \`${out.upiId}\`\n\nPay exactly, then send the screenshot here.`,
-    parse_mode: 'Markdown'
-  });
+  const caption =
+    `*Order #${out.order.id}* · *${inr(amount)}*\n\n` +
+    `${PAY_MSG}\n\n` +
+    (out.upiId ? `UPI: \`${out.upiId}\`\n` : '') +
+    `Order note: \`PC5-${out.order.id}\``;
+
+  await sendPaymentQr(ctx, caption, amount, `PC5-${out.order.id}`);
   pending.set(ctx.from.id, { action: 'shot', orderId: out.order.id });
 }
 
@@ -362,6 +489,7 @@ bot.action(/^pay:(.+):(single|unlimited)$/, async ctx => {
     return ctx.answerCbQuery(e.message === 'stock' ? 'Sold out' : 'Failed', { show_alert: true });
   }
 
+  schedulePush('sold');
   await ctx.answerCbQuery('Delivered');
   await ctx.editMessageText(`✅ *Key*\n\n\`${out.key}\`\n${p0.label} · ${dev}\nCharged ${inr(out.cost)}\nBalance ${inr(out.bal)}`, { parse_mode: 'Markdown' });
   notifyAdmins(`🔑 ${out.key} → ${ctx.from.id} (${p0.label}, ${inr(out.cost)})`);
@@ -387,12 +515,18 @@ bot.action('rsl', async ctx => {
   const order = await mutate(s => {
     const id = String(s.counters.nextOrder++);
     s.orders[id] = { id, userId: u.id, username: u.username, type: 'reseller', amount: fee, status: 'awaiting_payment', screenshotFileId: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    log(u.id, `reseller ${id}`);
     return s.orders[id];
   });
-  const upi = `upi://pay?pa=${encodeURIComponent(state.settings.upiId)}&pn=${encodeURIComponent(state.settings.upiName)}&am=${(fee / 100).toFixed(2)}&cu=INR&tn=PC5RSL-${order.id}`;
-  const png = await QRCode.toBuffer(upi, { width: 640, margin: 1 });
+
+  const caption =
+    `*Reseller #${order.id}* · *${inr(fee)}*\n\n` +
+    `${PAY_MSG}\n\n` +
+    (state.settings.upiId ? `UPI: \`${state.settings.upiId}\`\n` : '') +
+    `Order note: \`PC5RSL-${order.id}\``;
+
+  await sendPaymentQr(ctx, caption, fee, `PC5RSL-${order.id}`);
   pending.set(ctx.from.id, { action: 'shot', orderId: order.id });
-  await ctx.replyWithPhoto({ source: png }, { caption: `*Reseller #${order.id}*\n*${inr(fee)}*\nUPI \`${state.settings.upiId}\`\n\nPay, then send screenshot.`, parse_mode: 'Markdown' });
 });
 
 /* ---- text states ---- */
@@ -429,11 +563,18 @@ bot.command('stats', async ctx => {
   const us = Object.values(state.users);
   await ctx.reply(`${us.length} users · ${us.filter(u => u.tier === 'reseller').length} resellers\n` +
     `${Object.values(state.stock).filter(k => k.status === 'available').length} in stock\n` +
-    `${inr(us.reduce((a, u) => a + u.credit, 0))} credit held`);
+    `${inr(us.reduce((a, u) => a + u.credit, 0))} credit held\n` +
+    `github: ${ghConfigured() ? (state.settings.githubLastError ? 'error' : 'ok') : 'off'}`);
 });
 bot.command('stock', async ctx => {
   if (!isAdmin(ctx.from.id)) return;
   await ctx.reply(state.pricing.plans.map(p => `${p.label}: ${availCount(state, p.id, 'single')} single / ${availCount(state, p.id, 'unlimited')} unl`).join('\n'));
+});
+bot.command('sync', async ctx => {
+  if (!isAdmin(ctx.from.id)) return;
+  if (!ghConfigured()) return ctx.reply('GitHub not configured.');
+  const r = await pushStock('manual');
+  await ctx.reply(r.ok ? '✅ Pushed to GitHub' : '❌ ' + r.error);
 });
 bot.command('addcredit', async ctx => {
   if (!isAdmin(ctx.from.id)) return;
@@ -501,6 +642,8 @@ app.post('/api/logout', guard, (req, res) => {
   res.json({ ok: true });
 });
 
+const maskToken = t => (t ? t.slice(0, 6) + '…' + t.slice(-4) : '');
+
 app.get('/api/state', guard, (req, res) => {
   const st = Object.values(state.stock);
   const summary = {};
@@ -508,6 +651,7 @@ app.get('/api/state', guard, (req, res) => {
     single: st.filter(k => k.status === 'available' && k.planId === p.id && k.deviceLimit === 'single').length,
     unlimited: st.filter(k => k.status === 'available' && k.planId === p.id && k.deviceLimit === 'unlimited').length
   };
+  const s = state.settings;
   res.json({
     stats: {
       users: Object.keys(state.users).length,
@@ -522,9 +666,61 @@ app.get('/api/state', guard, (req, res) => {
     stockSummary: summary,
     stock: st.filter(k => k.status === 'available').slice(0, 400),
     pricing: state.pricing,
-    settings: state.settings,
+    settings: {
+      upiId: s.upiId, upiName: s.upiName, botMaintenance: s.botMaintenance,
+      maintenanceMsg: s.maintenanceMsg, minTopup: s.minTopup, maxTopup: s.maxTopup
+    },
+    github: {
+      repo: s.githubRepo, path: s.githubPath, branch: s.githubBranch,
+      hasToken: !!s.githubToken, tokenHint: maskToken(s.githubToken),
+      lastSync: s.githubLastSync, lastError: s.githubLastError
+    },
+    qrExists: fs.existsSync(QR_FILE),
     log: state.log.slice(-80).reverse()
   });
+});
+
+app.get('/api/qr', (req, res) => {
+  if (!fs.existsSync(QR_FILE)) return res.status(404).end();
+  res.setHeader('Cache-Control', 'no-store');
+  res.sendFile(QR_FILE);
+});
+
+app.post('/api/qr', guard, async (req, res) => {
+  const d = String((req.body || {}).dataUrl || '');
+  const m = /^data:image\/(png|jpe?g|webp);base64,([A-Za-z0-9+/=\s]+)$/.exec(d);
+  if (!m) return res.status(400).json({ error: 'unsupported image' });
+  const buf = Buffer.from(m[2].replace(/\s/g, ''), 'base64');
+  if (!buf.length) return res.status(400).json({ error: 'empty image' });
+  if (buf.length > 6 * 1024 * 1024) return res.status(400).json({ error: 'too large (max 6MB)' });
+  fs.mkdirSync(path.dirname(QR_FILE), { recursive: true });
+  fs.writeFileSync(QR_FILE, buf);
+  await mutate(s => log('panel', 'qr updated'));
+  res.json({ ok: true, bytes: buf.length });
+});
+
+app.post('/api/github', guard, async (req, res) => {
+  const b = req.body || {};
+  await mutate(s => {
+    if (typeof b.token === 'string' && b.token.trim()) s.settings.githubToken = b.token.trim();
+    if (b.clearToken) s.settings.githubToken = '';
+    if (b.repo != null) s.settings.githubRepo = String(b.repo).trim().replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '');
+    if (b.path != null) s.settings.githubPath = String(b.path).trim().replace(/^\/+/, '');
+    if (b.branch != null) s.settings.githubBranch = String(b.branch).trim() || 'main';
+    s.settings.githubLastError = '';
+    log('panel', 'github config');
+  });
+  res.json({ ok: true });
+});
+
+app.post('/api/github/push', guard, async (req, res) => {
+  const r = await pushStock('panel');
+  r.ok ? res.json(r) : res.status(400).json(r);
+});
+
+app.post('/api/github/pull', guard, async (req, res) => {
+  try { res.json({ ok: true, ...(await pullStock()) }); }
+  catch (e) { res.status(400).json({ ok: false, error: e.message }); }
 });
 
 app.post('/api/user/:id', guard, async (req, res) => {
@@ -584,6 +780,7 @@ app.post('/api/stock/add', guard, async (req, res) => {
     log('panel', `stock +${added}`);
     return { added, dupes };
   });
+  if (out.added) schedulePush(`add +${out.added}`);
   res.json({ ok: true, ...out });
 });
 
@@ -604,6 +801,7 @@ app.post('/api/stock/gen', guard, async (req, res) => {
     log('panel', `stock gen +${made}`);
     return made;
   });
+  schedulePush(`gen +${added}`);
   res.json({ ok: true, added });
 });
 
@@ -615,6 +813,7 @@ app.post('/api/stock/remove', guard, async (req, res) => {
     log('panel', `stock -${n}`);
     return n;
   });
+  if (removed) schedulePush(`remove -${removed}`);
   res.json({ ok: true, removed });
 });
 
@@ -649,11 +848,18 @@ app.post('/api/settings', guard, async (req, res) => {
 app.get('/api/backup', guard, (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="pc5-${Date.now()}.json"`);
   res.setHeader('Content-Type', 'application/json');
-  res.send(JSON.stringify(state, null, 2));
+  const snap = clone(state);
+  delete snap.settings.githubToken;
+  res.send(JSON.stringify(snap, null, 2));
 });
 
 app.post('/api/restore', guard, async (req, res) => {
-  await mutate(s => { Object.keys(s).forEach(k => delete s[k]); Object.assign(s, normalize(req.body)); });
+  await mutate(s => {
+    const token = s.settings.githubToken;
+    Object.keys(s).forEach(k => delete s[k]);
+    Object.assign(s, normalize(req.body));
+    if (!s.settings.githubToken && token) s.settings.githubToken = token;
+  });
   res.json({ ok: true });
 });
 
@@ -703,9 +909,16 @@ app.get('/', (req, res) => res.redirect('/panel'));
 /* ================= BOOT ================= */
 loadState();
 app.listen(PORT, '0.0.0.0', () => console.log(`panel: http://localhost:${PORT}/panel`));
-bot.launch().then(() => {
+
+bot.launch().then(async () => {
   console.log('bot online');
   notifyAdmins('✅ Bot online');
+  if (ghConfigured()) {
+    try {
+      const r = await pullStock();
+      if (r.added) notifyAdmins(`📥 Restored ${r.added} keys from GitHub`);
+    } catch (e) { console.warn('github pull failed:', e.message); }
+  }
 });
 process.once('SIGINT', () => { bot.stop('SIGINT'); process.exit(0); });
 process.once('SIGTERM', () => { bot.stop('SIGTERM'); process.exit(0); });
