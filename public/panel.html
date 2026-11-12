@@ -38,8 +38,10 @@
   .box{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:26px;width:min(340px,90vw);text-align:center}
   #toast{position:fixed;right:18px;bottom:18px;background:#1a1a22;border:1px solid #33333f;padding:10px 14px;border-radius:8px;display:none;z-index:99;max-width:70vw}
   .muted{color:var(--mut)}.small{font-size:11px}.low{color:#f59e0b}
+  .err{color:#f87171}.good{color:#34d399}
   #modal{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:60;padding:20px}
   #modal img{max-width:92vw;max-height:88vh;border-radius:10px}
+  #qrPrev{width:100%;border-radius:8px;border:1px solid var(--line);background:#0a0a0e}
 </style>
 </head>
 <body>
@@ -48,7 +50,7 @@
   <p class="muted small">panel password</p>
   <input id="pw" type="password" style="text-align:center;margin-bottom:10px" />
   <button id="pwBtn" style="width:100%">Unlock</button>
-  <p id="pwErr" class="small" style="color:#f87171;display:none">wrong password</p>
+  <p id="pwErr" class="small err" style="display:none">wrong password</p>
 </div></div>
 
 <header><h1>PC5 <span>BOT CONTROL</span></h1><div class="row">
@@ -69,6 +71,7 @@
         <textarea id="addKeys" rows="6" placeholder="Paste keys — one per line or comma separated" style="margin-top:8px"></textarea>
         <div class="row" style="margin-top:8px"><button id="addBtn">Add</button><span class="muted small">or</span>
           <input id="genCount" type="number" value="10" style="width:70px" /><button class="ghost" id="genBtn">Generate</button></div>
+        <p class="small muted" style="margin:8px 0 0">Saved locally, then mirrored to GitHub.</p>
       </div>
       <div class="card"><h2>Stock</h2>
         <table><thead><tr><th>Plan</th><th>1 device</th><th>Unlimited</th></tr></thead><tbody id="stockSummary"></tbody></table>
@@ -88,6 +91,25 @@
       <div class="card"><h2>Log</h2><div id="log" class="small muted"></div></div>
     </div>
     <div>
+      <div class="card"><h2>Payment QR</h2>
+        <img id="qrPrev" alt="payment qr" />
+        <input type="file" id="qrFile" accept="image/*" style="margin-top:8px" />
+        <p class="small muted" id="qrNote" style="margin:8px 0 0">Sent to users on top-up and reseller purchase.</p>
+      </div>
+      <div class="card"><h2>GitHub Stock Sync</h2>
+        <label class="small muted">Token</label>
+        <input id="ghToken" type="password" placeholder="ghp_..." autocomplete="off" />
+        <label class="small muted" style="display:block;margin-top:8px">Repo (owner/name)</label>
+        <input id="ghRepo" placeholder="youruser/pc5-stock" />
+        <label class="small muted" style="display:block;margin-top:8px">File path</label>
+        <input id="ghPath" placeholder="stock.json" />
+        <label class="small muted" style="display:block;margin-top:8px">Branch</label>
+        <input id="ghBranch" placeholder="main" />
+        <div class="row" style="margin-top:10px"><button id="ghSave">Save</button>
+          <button class="ghost" id="ghPush">Push</button><button class="ghost" id="ghPull">Pull</button>
+          <button class="ghost" id="ghClear">Clear token</button></div>
+        <p id="ghStatus" class="small muted" style="margin:8px 0 0">not configured</p>
+      </div>
       <div class="card"><h2>Settings</h2>
         <label class="small muted">UPI ID</label><input id="upiId" />
         <label class="small muted">UPI Name</label><input id="upiName" />
@@ -143,6 +165,30 @@ $('restoreFile').onchange = async e => {
   try { await api('/api/restore', JSON.parse(await f.text())); toast('restored'); load(); } catch (x) { toast(x.message); }
 };
 
+$('qrFile').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  if (f.size > 6 * 1024 * 1024) return toast('max 6MB');
+  const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
+  try { await api('/api/qr', { dataUrl }); toast('qr saved'); load(); } catch (x) { toast(x.message); }
+  e.target.value = '';
+};
+
+$('ghSave').onclick = async () => {
+  try {
+    await api('/api/github', { token: $('ghToken').value, repo: $('ghRepo').value, path: $('ghPath').value, branch: $('ghBranch').value });
+    $('ghToken').value = ''; toast('saved'); load();
+  } catch (x) { toast(x.message); }
+};
+$('ghClear').onclick = async () => {
+  try { await api('/api/github', { clearToken: true }); toast('token cleared'); load(); } catch (x) { toast(x.message); }
+};
+$('ghPush').onclick = async () => {
+  try { await api('/api/github/push', {}); toast('pushed'); load(); } catch (x) { toast(x.message); }
+};
+$('ghPull').onclick = async () => {
+  try { const d = await api('/api/github/pull', {}); toast('pulled +' + d.added); load(); } catch (x) { toast(x.message); }
+};
+
 function draw() {
   const st = S.stats;
   $('stats').innerHTML = [['Users', st.users], ['Resellers', st.resellers], ['Credit', inr(st.creditHeld)], ['In stock', st.available], ['Sold', st.sold], ['Pending', st.pending]]
@@ -196,6 +242,20 @@ function draw() {
   const opts = S.pricing.plans.map(p => `<option value="${p.id}">${p.label}</option>`).join('');
   $('gkPlan').innerHTML = opts;
   if (!$('addPlan').dataset.r) { $('addPlan').innerHTML = opts; $('addPlan').dataset.r = '1'; }
+
+  if (S.qrExists) { $('qrPrev').src = '/api/qr?t=' + Date.now(); $('qrPrev').style.display = 'block'; $('qrNote').textContent = 'Sent to users on top-up and reseller purchase.'; }
+  else { $('qrPrev').removeAttribute('src'); $('qrPrev').style.display = 'none'; $('qrNote').textContent = 'No QR uploaded yet — upload one before users pay.'; }
+
+  const g = S.github;
+  $('ghRepo').value = g.repo || '';
+  $('ghPath').value = g.path || '';
+  $('ghBranch').value = g.branch || '';
+  $('ghToken').value = '';
+  $('ghToken').placeholder = g.hasToken ? g.tokenHint : 'ghp_...';
+  if (!g.hasToken) $('ghStatus').innerHTML = '<span class="err">no token saved</span>';
+  else if (g.lastError) $('ghStatus').innerHTML = '<span class="err">' + g.lastError + '</span>';
+  else if (g.lastSync) $('ghStatus').innerHTML = '<span class="good">last sync ' + new Date(g.lastSync).toLocaleString() + '</span>';
+  else $('ghStatus').textContent = 'configured, not synced yet';
 }
 
 async function load() { try { S = await api('/api/state'); draw(); } catch (e) { if (e.message !== 'unauth') toast(e.message); } }
