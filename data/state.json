@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 11,
-  "savedAt": "2026-11-13T10:43:35.015Z",
+  "rev": 13,
+  "savedAt": "2026-11-13T10:44:54.962Z",
   "reason": "auto",
   "state": {
-    "rev": 11,
+    "rev": 13,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -52,6 +52,18 @@
         "banned": false,
         "resellerSince": null,
         "createdAt": "2026-11-13T10:43:31.013Z",
+        "totalSpent": 0,
+        "keyCount": 0
+      },
+      "8230679772": {
+        "id": 8230679772,
+        "username": "NightmareOfficial07",
+        "firstName": "Night",
+        "tier": "normal",
+        "credit": 0,
+        "banned": false,
+        "resellerSince": null,
+        "createdAt": "2026-11-13T10:44:50.960Z",
         "totalSpent": 0,
         "keyCount": 0
       }
