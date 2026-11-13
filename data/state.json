@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 115,
-  "savedAt": "2026-11-13T14:33:37.701Z",
+  "rev": 117,
+  "savedAt": "2026-11-13T14:37:03.397Z",
   "reason": "auto",
   "state": {
-    "rev": 115,
+    "rev": 117,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -1957,6 +1957,16 @@
         "deviceLimit": "single",
         "status": "available",
         "addedAt": "2026-11-13T12:59:28.881Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-DT46B5": {
+        "key": "PC5-DT46B5",
+        "planId": "1h",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T14:36:59.202Z",
         "soldAt": null,
         "soldTo": null,
         "orderId": null
