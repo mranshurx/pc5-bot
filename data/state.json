@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 125,
-  "savedAt": "2026-11-13T14:57:52.817Z",
+  "rev": 127,
+  "savedAt": "2026-11-13T14:58:21.026Z",
   "reason": "auto",
   "state": {
-    "rev": 125,
+    "rev": 127,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -2056,7 +2056,7 @@
       "botMaintenance": false,
       "maintenanceMsg": "Bot is under maintenance. Try again shortly.",
       "minTopup": 2000,
-      "maxTopup": 500000,
+      "maxTopup": 100000000,
       "ghAutoSync": true,
       "githubRepo": "mranshurx/pc5-bot",
       "githubPath": "data/state.json",
