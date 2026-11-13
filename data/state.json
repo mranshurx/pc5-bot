@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 140,
-  "savedAt": "2026-11-13T15:48:26.809Z",
+  "rev": 142,
+  "savedAt": "2026-11-13T16:59:41.629Z",
   "reason": "auto",
   "state": {
-    "rev": 140,
+    "rev": 142,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -102,6 +102,18 @@
         "banned": false,
         "resellerSince": null,
         "createdAt": "2026-11-13T15:48:22.646Z",
+        "totalSpent": 0,
+        "keyCount": 0
+      },
+      "6998041932": {
+        "id": 6998041932,
+        "username": "OwnerAimdevil",
+        "firstName": "Aimdevil",
+        "tier": "normal",
+        "credit": 0,
+        "banned": false,
+        "resellerSince": null,
+        "createdAt": "2026-11-13T16:59:37.436Z",
         "totalSpent": 0,
         "keyCount": 0
       }
@@ -2089,7 +2101,7 @@
       "githubBranch": "main",
       "githubLastSync": "2026-11-13T15:47:25.999Z",
       "githubLastRev": 137,
-      "githubLastError": ""
+      "githubLastError": "read 502"
     },
     "counters": {
       "nextOrder": 1007
