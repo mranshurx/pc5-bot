@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 117,
-  "savedAt": "2026-11-13T14:37:03.397Z",
+  "rev": 119,
+  "savedAt": "2026-11-13T14:48:05.611Z",
   "reason": "auto",
   "state": {
-    "rev": 117,
+    "rev": 119,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -1988,7 +1988,7 @@
           "id": "3h",
           "hours": 3,
           "label": "3 Hours",
-          "retail": 900,
+          "retail": 1200,
           "reseller": 700,
           "on": true
         },
@@ -1996,7 +1996,7 @@
           "id": "6h",
           "hours": 6,
           "label": "6 Hours",
-          "retail": 1200,
+          "retail": 1500,
           "reseller": 900,
           "on": true
         },
@@ -2004,7 +2004,7 @@
           "id": "12h",
           "hours": 12,
           "label": "12 Hours",
-          "retail": 1400,
+          "retail": 2000,
           "reseller": 1000,
           "on": true
         },
@@ -2012,7 +2012,7 @@
           "id": "1d",
           "hours": 24,
           "label": "1 Day",
-          "retail": 1900,
+          "retail": 3200,
           "reseller": 1400,
           "on": true
         },
@@ -2020,7 +2020,7 @@
           "id": "3d",
           "hours": 72,
           "label": "3 Days",
-          "retail": 3200,
+          "retail": 4300,
           "reseller": 2400,
           "on": true
         },
@@ -2028,7 +2028,7 @@
           "id": "7d",
           "hours": 168,
           "label": "7 Days",
-          "retail": 5500,
+          "retail": 7500,
           "reseller": 4200,
           "on": true
         },
@@ -2036,7 +2036,7 @@
           "id": "14d",
           "hours": 336,
           "label": "14 Days",
-          "retail": 8200,
+          "retail": 12000,
           "reseller": 6200,
           "on": true
         },
@@ -2044,7 +2044,7 @@
           "id": "30d",
           "hours": 720,
           "label": "30 Days",
-          "retail": 14900,
+          "retail": 21000,
           "reseller": 11200,
           "on": true
         }
