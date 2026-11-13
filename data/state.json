@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 95,
-  "savedAt": "2026-11-13T14:28:46.057Z",
+  "rev": 97,
+  "savedAt": "2026-11-13T14:29:02.191Z",
   "reason": "auto",
   "state": {
-    "rev": 95,
+    "rev": 97,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -100,11 +100,11 @@
         "username": "CYBERxANGSHU",
         "type": "topup",
         "amount": 5000,
-        "status": "awaiting_payment",
-        "screenshotFileId": null,
-        "screenshotLocal": null,
+        "status": "pending_review",
+        "screenshotFileId": "AgACAgUAAxkBAAICpmr3GSs_iE8tzVHGXXkoA9DO_WmRAAILF2sbaBm4V11s2o7Bd_knAQADAgADdwADPQQ",
+        "screenshotLocal": "1002.jpg",
         "createdAt": "2026-11-13T14:28:31.354Z",
-        "updatedAt": "2026-11-13T14:28:31.354Z",
+        "updatedAt": "2026-11-13T14:28:51.298Z",
         "note": ""
       }
     },
@@ -1999,8 +1999,8 @@
       "githubRepo": "mranshurx/pc5-bot",
       "githubPath": "data/state.json",
       "githubBranch": "main",
-      "githubLastSync": "2026-11-13T14:28:30.931Z",
-      "githubLastRev": 93,
+      "githubLastSync": "2026-11-13T14:28:47.063Z",
+      "githubLastRev": 95,
       "githubLastError": ""
     },
     "counters": {
