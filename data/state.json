@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 127,
-  "savedAt": "2026-11-13T14:58:21.026Z",
+  "rev": 131,
+  "savedAt": "2026-11-13T14:58:38.095Z",
   "reason": "auto",
   "state": {
-    "rev": 127,
+    "rev": 131,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -2055,14 +2055,14 @@
       "upiName": "PC5 ANDROID",
       "botMaintenance": false,
       "maintenanceMsg": "Bot is under maintenance. Try again shortly.",
-      "minTopup": 2000,
+      "minTopup": 700,
       "maxTopup": 100000000,
       "ghAutoSync": true,
       "githubRepo": "mranshurx/pc5-bot",
       "githubPath": "data/state.json",
       "githubBranch": "main",
-      "githubLastSync": "2026-11-13T14:57:37.598Z",
-      "githubLastRev": 123,
+      "githubLastSync": "2026-11-13T14:58:21.958Z",
+      "githubLastRev": 127,
       "githubLastError": ""
     },
     "counters": {
