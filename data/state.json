@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 113,
-  "savedAt": "2026-11-13T14:33:00.803Z",
+  "rev": 115,
+  "savedAt": "2026-11-13T14:33:37.701Z",
   "reason": "auto",
   "state": {
-    "rev": 113,
+    "rev": 115,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -72,12 +72,12 @@
         "username": "CYBERxANGSHU",
         "firstName": "CYBERxANGSHU",
         "tier": "normal",
-        "credit": 15600,
+        "credit": 14900,
         "banned": false,
         "resellerSince": null,
         "createdAt": "2026-11-13T14:04:08.371Z",
-        "totalSpent": 0,
-        "keyCount": 0,
+        "totalSpent": 700,
+        "keyCount": 1,
         "lastSeen": "2026-11-13T14:31:36.490Z"
       },
       "8500841843": {
@@ -144,6 +144,20 @@
         "createdAt": "2026-11-13T14:31:36.490Z",
         "updatedAt": "2026-11-13T14:32:48.498Z",
         "note": ""
+      },
+      "1005": {
+        "id": "1005",
+        "userId": 8601285872,
+        "username": "CYBERxANGSHU",
+        "type": "key",
+        "planId": "1h",
+        "hours": 1,
+        "deviceLimit": "single",
+        "amount": 700,
+        "status": "completed",
+        "key": "PC5-1HDNOL",
+        "createdAt": "2026-11-13T14:33:33.474Z",
+        "updatedAt": "2026-11-13T14:33:33.474Z"
       }
     },
     "stock": {
@@ -151,11 +165,11 @@
         "key": "PC5-1HDNOL",
         "planId": "1h",
         "deviceLimit": "single",
-        "status": "available",
+        "status": "sold",
         "addedAt": "2026-11-13T12:32:46.996Z",
-        "soldAt": null,
-        "soldTo": null,
-        "orderId": null
+        "soldAt": "2026-11-13T14:33:33.474Z",
+        "soldTo": 8601285872,
+        "orderId": "1005"
       },
       "PC5-W02NIF": {
         "key": "PC5-W02NIF",
@@ -2042,7 +2056,7 @@
       "githubLastError": ""
     },
     "counters": {
-      "nextOrder": 1005
+      "nextOrder": 1006
     },
     "log": []
   }
