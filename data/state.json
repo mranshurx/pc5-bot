@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 88,
-  "savedAt": "2026-11-13T14:24:37.987Z",
+  "rev": 90,
+  "savedAt": "2026-11-13T14:25:41.762Z",
   "reason": "auto",
   "state": {
-    "rev": 88,
+    "rev": 90,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -36,7 +36,7 @@
         "username": "pc5developer",
         "firstName": "CYBER COMEBACK 🔥😎",
         "tier": "normal",
-        "credit": 0,
+        "credit": 450000,
         "banned": false,
         "resellerSince": null,
         "createdAt": "2026-11-13T10:42:53.692Z",
