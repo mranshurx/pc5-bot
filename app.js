@@ -264,7 +264,7 @@ const pending = new Map();
 const BTN = { buy: '🛒 Buy Key', credit: '➕ Add Credit', balance: '💰 Balance', mykeys: '🔑 My Keys', reseller: '🏪 Reseller', help: '❓ Help' };
 const menu = () => Markup.keyboard([[BTN.buy, BTN.credit], [BTN.balance, BTN.mykeys], [BTN.reseller, BTN.help]]).resize();
 
-const PAY_MSG = 'PAY THE SELECTED AMOUNT AND UPLOAD THE PAYMENT SCREENSHOT';
+const PAY_MSG = 'PAY THE SELECTED AMOUNT AND UPLOAD THE PAYMENT SCREENSHOT, PAY IN THE QR THAT IS IN THE BOT PROFILE PICTURE';
 
 async function notifyAdmins(text, opts = {}) {
   for (const a of ADMIN_IDS) bot.telegram.sendMessage(a, text, opts).catch(() => {});
