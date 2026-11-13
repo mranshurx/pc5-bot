@@ -1,25 +1,14 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 2,
-  "savedAt": "2026-11-13T09:45:37.076Z",
+  "rev": 4,
+  "savedAt": "2026-11-13T10:42:32.014Z",
   "reason": "auto",
   "state": {
-    "rev": 2,
+    "rev": 4,
     "users": {},
     "orders": {},
-    "stock": {
-      "TEST-KEY-NOT-FOR-SELL": {
-        "key": "TEST-KEY-NOT-FOR-SELL",
-        "planId": "1h",
-        "deviceLimit": "single",
-        "status": "available",
-        "addedAt": "2026-11-13T09:45:33.074Z",
-        "soldAt": null,
-        "soldTo": null,
-        "orderId": null
-      }
-    },
+    "stock": {},
     "pricing": {
       "resellerFee": 15000,
       "unlimitedMultiplier": 1.5,
