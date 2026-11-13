@@ -299,6 +299,7 @@ $('gkBtn').onclick = async () => {
   catch (x) { toast(x.message); }
 };
 load().catch(() => {});
+setInterval(() => { if (S) load().catch(() => {}); }, 15000);
 </script>
 </body>
 </html>
