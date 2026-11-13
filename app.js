@@ -1053,7 +1053,9 @@ app.get('/api/shot/:orderId', guard, async (req, res) => {
     res.send(Buffer.from(await img.arrayBuffer()));
   } catch { res.status(500).end(); }
 });
-
+app.get('/health', (req, res) => {
+  res.json({ ok: true, rev: state.rev, sync: ghReady() ? (state.settings.githubLastError ? 'error' : 'ok') : 'off', up: Math.round(process.uptime()) });
+});
 app.get('/panel', (req, res) => res.sendFile(path.join(__dirname, 'public', 'panel.html')));
 app.get('/', (req, res) => res.redirect('/panel'));
 
