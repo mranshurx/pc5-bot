@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 82,
-  "savedAt": "2026-11-13T12:59:32.883Z",
+  "rev": 84,
+  "savedAt": "2026-11-13T14:03:42.371Z",
   "reason": "auto",
   "state": {
-    "rev": 82,
+    "rev": 84,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -68,7 +68,20 @@
         "keyCount": 0
       }
     },
-    "orders": {},
+    "orders": {
+      "1001": {
+        "id": "1001",
+        "userId": 8928056207,
+        "username": "pc5developer",
+        "type": "topup",
+        "amount": 100000,
+        "status": "awaiting_payment",
+        "screenshotFileId": null,
+        "createdAt": "2026-11-13T14:03:38.367Z",
+        "updatedAt": "2026-11-13T14:03:38.367Z",
+        "note": ""
+      }
+    },
     "stock": {
       "PC5-1HDNOL": {
         "key": "PC5-1HDNOL",
@@ -1965,7 +1978,7 @@
       "githubLastError": ""
     },
     "counters": {
-      "nextOrder": 1001
+      "nextOrder": 1002
     },
     "log": []
   }
