@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 121,
-  "savedAt": "2026-11-13T14:48:26.989Z",
+  "rev": 123,
+  "savedAt": "2026-11-13T14:57:34.986Z",
   "reason": "auto",
   "state": {
-    "rev": 121,
+    "rev": 123,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -1981,7 +1981,7 @@
           "hours": 1,
           "label": "1 Hour",
           "retail": 700,
-          "reseller": 500,
+          "reseller": 200,
           "on": true
         },
         {
@@ -1989,7 +1989,7 @@
           "hours": 3,
           "label": "3 Hours",
           "retail": 1200,
-          "reseller": 700,
+          "reseller": 400,
           "on": true
         },
         {
@@ -1997,7 +1997,7 @@
           "hours": 6,
           "label": "6 Hours",
           "retail": 1500,
-          "reseller": 900,
+          "reseller": 600,
           "on": true
         },
         {
@@ -2005,7 +2005,7 @@
           "hours": 12,
           "label": "12 Hours",
           "retail": 2000,
-          "reseller": 1000,
+          "reseller": 800,
           "on": true
         },
         {
@@ -2013,7 +2013,7 @@
           "hours": 24,
           "label": "1 Day",
           "retail": 3200,
-          "reseller": 1400,
+          "reseller": 1100,
           "on": true
         },
         {
@@ -2021,7 +2021,7 @@
           "hours": 72,
           "label": "3 Days",
           "retail": 4300,
-          "reseller": 2400,
+          "reseller": 1800,
           "on": true
         },
         {
@@ -2029,7 +2029,7 @@
           "hours": 168,
           "label": "7 Days",
           "retail": 7500,
-          "reseller": 4200,
+          "reseller": 3300,
           "on": true
         },
         {
@@ -2037,7 +2037,7 @@
           "hours": 336,
           "label": "14 Days",
           "retail": 12000,
-          "reseller": 6200,
+          "reseller": 6000,
           "on": true
         },
         {
@@ -2045,7 +2045,7 @@
           "hours": 720,
           "label": "30 Days",
           "retail": 21000,
-          "reseller": 11200,
+          "reseller": 11000,
           "on": true
         }
       ]
