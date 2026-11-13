@@ -30,6 +30,7 @@
   .pill.paid, .pill.approved { color:var(--ok); border-color:var(--ok); }
   .pill.rejected { color:var(--bad); border-color:var(--bad); }
   .pill.awaiting_payment { color:var(--dim); }
+  .pill.orphan { color:var(--bad); border-color:var(--bad); }
   .shot { max-width:150px; border-radius:6px; border:1px solid var(--line); cursor:zoom-in; display:block; }
   #login { max-width:340px; margin:14vh auto; }
   .tabs { display:flex; gap:6px; margin-bottom:12px; flex-wrap:wrap; }
@@ -126,7 +127,7 @@ async function login() {
   } catch { $('loginErr').textContent = 'Network error'; }
 }
 
-async function logout() {
+function logout() {
   document.cookie = 'sid=; Max-Age=0; Path=/';
   showLogin();
 }
@@ -261,20 +262,27 @@ async function dm(id) {
 }
 
 function renderStock() {
+  const ids = Object.keys(counts);
+  const planOptions = ids.map((id) => `<option value="${esc(id)}">${esc(counts[id].name)} [${esc(id)}]</option>`).join('');
+
   $('tab-stock').innerHTML = `
     <div class="card">
-      <strong>Stock</strong>
+      <strong>Stock buckets</strong>
       <table style="margin-top:8px"><thead><tr><th>Plan</th><th>Available</th><th>Total</th></tr></thead><tbody id="stockRows">
-      ${S.settings.plans.map((p) => {
-        const c = counts[p.id] || { available: 0, total: 0 };
-        return `<tr data-plan="${p.id}"><td>${esc(p.name)}<div class="dim mono">${p.id}</div></td><td class="av">${c.available}</td><td>${c.total}</td></tr>`;
-      }).join('')}
+      ${ids.map((id) => {
+        const c = counts[id];
+        return `<tr data-plan="${esc(id)}">
+          <td>${esc(c.name)}${c.known ? '' : ' <span class="pill orphan">not a plan</span>'}<div class="dim mono">${esc(id)}</div></td>
+          <td class="av">${c.available}</td>
+          <td class="tot">${c.total}</td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="3" class="dim">No buckets.</td></tr>'}
       </tbody></table>
     </div>
     <div class="card">
       <strong>Add keys</strong>
       <div class="row" style="margin:8px 0">
-        <select id="stockPlan">${S.settings.plans.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
+        <select id="stockPlan">${planOptions}</select>
       </div>
       <textarea id="stockKeys" placeholder="One key per line, or comma separated"></textarea>
       <div class="row" style="margin-top:8px">
@@ -284,16 +292,24 @@ function renderStock() {
         <button onclick="genKeys()">Generate</button>
         <button onclick="purgeSold()">Purge sold</button>
       </div>
+    </div>
+    <div class="card">
+      <strong>Move bucket</strong>
+      <div class="row" style="margin-top:8px">
+        <input id="moveFrom" placeholder="from id" style="flex:1" />
+        <input id="moveTo" placeholder="to plan id" style="flex:1" />
+        <button onclick="moveBucket()">Move</button>
+      </div>
+      <p class="dim" style="margin:6px 0 0">Use this if keys sit under an old plan id.</p>
     </div>`;
 }
 
 function updateCounts() {
-  for (const p of S.settings.plans) {
-    const row = document.querySelector(`#stockRows tr[data-plan="${p.id}"]`);
-    if (!row) continue;
-    const c = counts[p.id] || { available: 0, total: 0 };
+  for (const [id, c] of Object.entries(counts)) {
+    const row = document.querySelector(`#stockRows tr[data-plan="${id}"]`);
+    if (!row) { renderStock(); return; }
     row.querySelector('.av').textContent = c.available;
-    row.lastElementChild.textContent = c.total;
+    row.querySelector('.tot').textContent = c.total;
   }
 }
 
@@ -327,6 +343,17 @@ async function purgeSold() {
   } catch (e) { toast(e.message); }
 }
 
+async function moveBucket() {
+  const from = $('moveFrom').value.trim();
+  const to = $('moveTo').value.trim();
+  if (!from || !to) return toast('Need both ids');
+  try {
+    await call('POST', '/api/stock/rename', { from, to });
+    toast('Moved');
+    load();
+  } catch (e) { toast(e.message); }
+}
+
 function renderSettings() {
   const s = S.settings;
   $('tab-settings').innerHTML = `
@@ -346,7 +373,7 @@ function renderSettings() {
       <strong>Plans</strong>
       <table style="margin-top:8px"><thead><tr><th>ID</th><th>Name</th><th>Price ₹</th><th></th></tr></thead><tbody>
       ${s.plans.map((p, i) => `<tr>
-        <td class="mono">${p.id}</td>
+        <td class="mono">${esc(p.id)}</td>
         <td><input value="${esc(p.name)}" oninput="S.settings.plans[${i}].name=this.value" /></td>
         <td><input type="number" value="${p.price / 100}" oninput="S.settings.plans[${i}].price=Math.round(this.value*100)" /></td>
         <td><button class="bad" onclick="S.settings.plans.splice(${i},1);renderSettings()">×</button></td>
