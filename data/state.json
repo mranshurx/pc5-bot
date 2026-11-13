@@ -1,12 +1,49 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 4,
-  "savedAt": "2026-11-13T10:42:32.014Z",
+  "rev": 9,
+  "savedAt": "2026-11-13T10:42:57.694Z",
   "reason": "auto",
   "state": {
-    "rev": 4,
-    "users": {},
+    "rev": 9,
+    "users": {
+      "8976681197": {
+        "id": 8976681197,
+        "username": "Night_riderofficial",
+        "firstName": "Night",
+        "tier": "normal",
+        "credit": 0,
+        "banned": false,
+        "resellerSince": null,
+        "createdAt": "2026-11-13T10:42:53.686Z",
+        "totalSpent": 0,
+        "keyCount": 0
+      },
+      "9127706030": {
+        "id": 9127706030,
+        "username": "Amitconfigyt1",
+        "firstName": "𝐀𝐌𝐈𝐓 𝐂𝐎𝐍𝐅𝐈𝐆 (ᴏᴡɴᴇʀ)",
+        "tier": "normal",
+        "credit": 0,
+        "banned": false,
+        "resellerSince": null,
+        "createdAt": "2026-11-13T10:42:53.688Z",
+        "totalSpent": 0,
+        "keyCount": 0
+      },
+      "8928056207": {
+        "id": 8928056207,
+        "username": "pc5developer",
+        "firstName": "CYBER COMEBACK 🔥😎",
+        "tier": "normal",
+        "credit": 0,
+        "banned": false,
+        "resellerSince": null,
+        "createdAt": "2026-11-13T10:42:53.692Z",
+        "totalSpent": 0,
+        "keyCount": 0
+      }
+    },
     "orders": {},
     "stock": {},
     "pricing": {
