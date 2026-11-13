@@ -11,6 +11,7 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_IDS = (process.env.ADMIN_IDS || '').split(',').map(s => Number(s.trim())).filter(Boolean);
 const PANEL_PASSWORD = process.env.PANEL_PASSWORD || 'admin';
 const DATA_DIR = path.resolve(process.env.DATA_DIR || './data');
+const SHOTS_DIR = path.join(DATA_DIR, 'shots');
 const PORT = Number(process.env.PORT || 8080);
 const QR_FILE = path.join(__dirname, 'public', 'qr.jpg');
 const isAdmin = id => ADMIN_IDS.includes(Number(id));
@@ -26,6 +27,7 @@ const SYNC_HEARTBEAT = 10 * 60e3;  // safety push if dirty
 const BOOT_PULL_TIMEOUT = 20000;
 const PUSH_ATTEMPTS = 3;
 const DISK_POLL = 2000;            // re-read state.json written by another process
+const REMOTE_POLL = 5000;          // pull newer remote state (bot <-> panel liveness)
 
 if (!BOT_TOKEN) { console.error('BOT_TOKEN missing in .env'); process.exit(1); }
 
@@ -74,6 +76,8 @@ let queue = Promise.resolve();
 let fileMtime = 0;
 let writing = false;
 let lastReload = 0;
+let lastPullAt = 0;
+let lastPullOk = 0;
 
 const clone = o => JSON.parse(JSON.stringify(o));
 
@@ -175,6 +179,30 @@ function syncFromDisk() {
   } catch {}
 }
 
+/* union two snapshots — nothing created on either side is ever dropped */
+function mergeInto(target, remote) {
+  for (const [id, u] of Object.entries(remote.users || {})) {
+    const cur = target.users[id];
+    target.users[id] = cur ? { ...cur, ...u } : u;
+  }
+  for (const [id, o] of Object.entries(remote.orders || {})) {
+    const cur = target.orders[id];
+    target.orders[id] = cur ? { ...cur, ...o } : o;
+  }
+  for (const [k, v] of Object.entries(remote.stock || {})) {
+    const cur = target.stock[k];
+    if (!cur) { target.stock[k] = v; continue; }
+    /* a sold key stays sold even if the other side still shows it available */
+    if (cur.status === 'sold' || v.status === 'sold') {
+      target.stock[k] = { ...cur, ...v, status: 'sold', soldAt: cur.soldAt || v.soldAt || null, soldTo: cur.soldTo || v.soldTo || null, orderId: cur.orderId || v.orderId || null };
+    } else target.stock[k] = { ...cur, ...v };
+  }
+  if (remote.pricing) target.pricing = remote.pricing;
+  if (remote.settings) target.settings = { ...target.settings, ...remote.settings };
+  if (remote.counters) target.counters = { ...target.counters, ...remote.counters };
+  target.rev = Math.max(Number(target.rev) || 0, Number(remote.rev) || 0);
+}
+
 function log(actor, text) {
   state.log.push({ at: new Date().toISOString(), actor: String(actor), text: String(text).slice(0, 300) });
   if (state.log.length > 500) state.log = state.log.slice(-500);
@@ -207,6 +235,7 @@ function ensureUser(s, from) {
   } else {
     s.users[id].username = from.username || s.users[id].username;
     s.users[id].firstName = from.first_name || s.users[id].firstName;
+    s.users[id].lastSeen = new Date().toISOString();
   }
   return s.users[id];
 }
@@ -275,6 +304,7 @@ function snapshotForRepo(reason) {
 
 let dirty = false;
 let pushing = false;
+let pullTimer = null;
 let pushTimer = null;
 let lastPushAt = 0;
 let heartbeat = null;
@@ -291,8 +321,54 @@ function schedulePush() {
   pushTimer = setTimeout(() => { flush().catch(() => {}); }, wait);
 }
 
+/* fetch remote snapshot, return null when it is missing or not newer */
+async function fetchRemote() {
+  if (!ghReady()) return null;
+  const r = await ghFetch('GET', ghUrl(true));
+  if (r.status === 404) return { sha: null, payload: null };
+  if (!r.ok) throw new Error('read ' + r.status);
+  const j = await r.json();
+  let data;
+  try { data = JSON.parse(Buffer.from(j.content || '', 'base64').toString('utf8')); }
+  catch { throw new Error('remote file is not valid json'); }
+  const payload = data && data.state && typeof data.state === 'object' ? data.state : data;
+  return { sha: j.sha || null, payload: payload && payload.users ? normalize(payload) : null };
+}
+
+/* pull newer remote state into memory — used by both the bot and the panel */
+async function pullIfNewer(force = false) {
+  if (!ghReady() || pushing) return false;
+  if (!force && Date.now() - lastPullAt < REMOTE_POLL) return false;
+  lastPullAt = Date.now();
+  try {
+    const remote = await fetchRemote();
+    if (!remote || !remote.payload) return false;
+    if (!force && (Number(remote.payload.rev) || 0) <= state.rev) return false;
+    if ((Number(remote.payload.rev) || 0) <= state.rev) return false;
+    await mutate(s => {
+      const token = s.settings.githubToken;
+      mergeInto(s, remote.payload);
+      if (!s.settings.githubToken && token) s.settings.githubToken = token;
+      log('sync', `pulled rev ${remote.payload.rev}`);
+    }, { quiet: true });
+    lastPullOk = Date.now();
+    return true;
+  } catch (e) {
+    state.settings.githubLastError = String(e.message || e).slice(0, 200);
+    return false;
+  }
+}
+
 async function pushState(reason) {
   if (!ghReady()) return { ok: false, error: 'not configured' };
+  /* never clobber a newer remote — merge it in first */
+  try {
+    const head = await fetchRemote();
+    if (head && head.payload && (Number(head.payload.rev) || 0) > state.rev) {
+      await mutate(s => mergeInto(s, head.payload), { quiet: true });
+    }
+  } catch {}
+
   const snap = snapshotForRepo(reason);
   const body = JSON.stringify(snap, null, 2);
   let lastErr = '';
@@ -346,50 +422,16 @@ async function forceFlush() {
 }
 
 async function pullState() {
-  if (!ghReady()) throw new Error('not configured');
-  const r = await ghFetch('GET', ghUrl(true));
-  if (r.status === 404) return { imported: false, legacy: 0 };
-
-  if (!r.ok) throw new Error('read ' + r.status);
-  const j = await r.json();
-  let data;
-  try { data = JSON.parse(Buffer.from(j.content || '', 'base64').toString('utf8')); }
-  catch { throw new Error('remote file is not valid json'); }
-
-  const payload = data && data.state && typeof data.state === 'object' ? data.state : data;
-
-  if (payload && payload.users && payload.orders) {
-    await mutate(s => {
-      const token = s.settings.githubToken;
-      Object.keys(s).forEach(k => delete s[k]);
-      Object.assign(s, normalize(payload));
-      if (!s.settings.githubToken && token) s.settings.githubToken = token;
-      log('github', `pulled state rev ${s.rev || 0}`);
-    }, { quiet: true });
-    return { imported: true, legacy: 0 };
-  }
-
-  if (payload && payload.stock) {
-    const n = await mutate(s => {
-      let added = 0;
-      for (const [k, v] of Object.entries(payload.stock)) {
-        if (s.stock[k] || !v || !v.planId) continue;
-        s.stock[k] = {
-          key: k, planId: v.planId,
-          deviceLimit: v.deviceLimit === 'unlimited' ? 'unlimited' : 'single',
-          status: v.status === 'sold' ? 'sold' : 'available',
-          addedAt: new Date().toISOString(), soldAt: v.soldAt || null,
-          soldTo: v.soldTo || null, orderId: v.orderId || null
-        };
-        added++;
-      }
-      log('github', `legacy import ${added}`);
-      return added;
-    }, { quiet: true });
-    return { imported: false, legacy: n };
-  }
-
-  throw new Error('remote file has no usable data');
+  const remote = await fetchRemote();
+  if (!remote) throw new Error('not configured');
+  if (!remote.payload) return { imported: false, legacy: 0 };
+  await mutate(s => {
+    const token = s.settings.githubToken;
+    mergeInto(s, remote.payload);
+    if (!s.settings.githubToken && token) s.settings.githubToken = token;
+    log('github', `merged remote rev ${remote.payload.rev}`);
+  }, { quiet: true });
+  return { imported: true, legacy: 0 };
 }
 
 /* ================= BOT ================= */
@@ -416,6 +458,29 @@ function getPending(uid) {
   if (!p) return null;
   if (Date.now() - p.at > SHOT_TTL) { pending.delete(uid); return null; }
   return p;
+}
+
+/* keep a local copy of the proof so the panel can always render it */
+async function saveShot(orderId, fileId) {
+  try {
+    const j = await (await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${encodeURIComponent(fileId)}`)).json();
+    if (!j.ok) return null;
+    const img = await fetch(`https://api.telegram.org/file/bot${BOT_TOKEN}/${j.result.file_path}`);
+    if (!img.ok) return null;
+    fs.mkdirSync(SHOTS_DIR, { recursive: true });
+    const ext = /\.png$/i.test(j.result.file_path) ? '.png' : '.jpg';
+    const dest = path.join(SHOTS_DIR, orderId + ext);
+    fs.writeFileSync(dest, Buffer.from(await img.arrayBuffer()));
+    return path.basename(dest);
+  } catch { return null; }
+}
+
+function shotFile(orderId) {
+  for (const ext of ['.jpg', '.png', '.webp']) {
+    const p = path.join(SHOTS_DIR, orderId + ext);
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
 }
 
 async function sendPaymentQr(ctx, amount, orderId) {
@@ -446,6 +511,7 @@ async function sendPaymentQr(ctx, amount, orderId) {
 bot.use(async (ctx, next) => {
   if (!ctx.from) return next();
   syncFromDisk();
+  await pullIfNewer().catch(() => {});
   const u = state.users[String(ctx.from.id)];
   if (u && u.banned && !isAdmin(ctx.from.id)) return ctx.reply('🚫 Banned. Contact support.');
   if (state.settings.botMaintenance && !isAdmin(ctx.from.id) && ctx.message && !ctx.message.text?.startsWith('/start')) {
@@ -503,7 +569,7 @@ async function makeTopup(ctx, amount) {
     const id = String(s.counters.nextOrder++);
     s.orders[id] = {
       id, userId: u.id, username: u.username, type: 'topup', amount,
-      status: 'awaiting_payment', screenshotFileId: null,
+      status: 'awaiting_payment', screenshotFileId: null, screenshotLocal: null,
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), note: ''
     };
     log(u.id, `topup ${id} ${inr(amount)}`);
@@ -552,10 +618,12 @@ bot.on(['photo', 'document'], async ctx => {
   if (!order) return ctx.reply('No open order. Press ➕ Add Credit.');
 
   const fileId = ctx.message.photo ? ctx.message.photo.at(-1).file_id : ctx.message.document.file_id;
+  const local = await saveShot(order.id, fileId);
 
   await mutate(s => {
     const o = s.orders[order.id];
     o.screenshotFileId = fileId;
+    if (local) o.screenshotLocal = local;
     o.status = 'pending_review';
     o.updatedAt = new Date().toISOString();
     log(ctx.from.id, `order ${order.id} proof`);
@@ -721,7 +789,7 @@ bot.action('rsl', async ctx => {
   const fee = state.pricing.resellerFee;
   const order = await mutate(s => {
     const id = String(s.counters.nextOrder++);
-    s.orders[id] = { id, userId: u.id, username: u.username, type: 'reseller', amount: fee, status: 'awaiting_payment', screenshotFileId: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    s.orders[id] = { id, userId: u.id, username: u.username, type: 'reseller', amount: fee, status: 'awaiting_payment', screenshotFileId: null, screenshotLocal: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     log(u.id, `reseller ${id}`);
     return s.orders[id];
   });
@@ -874,8 +942,15 @@ app.post('/api/logout', guard, (req, res) => {
 
 const maskToken = t => (t ? t.slice(0, 6) + '…' + t.slice(-4) : '');
 
-app.get('/api/state', guard, (req, res) => {
+/* panel pulls the freshest state from the repo before rendering */
+async function freshen() {
   syncFromDisk();
+  if (!ghReady()) return;
+  await Promise.race([pullIfNewer().catch(() => {}), sleep(1500)]);
+}
+
+app.get('/api/state', guard, async (req, res) => {
+  await freshen();
   const st = Object.values(state.stock);
   const summary = {};
   for (const p of state.pricing.plans) summary[p.id] = {
@@ -890,7 +965,8 @@ app.get('/api/state', guard, (req, res) => {
     };
   }
   const s = state.settings;
-  res.json({
+  const base = {
+    rev: state.rev,
     stats: {
       users: Object.keys(state.users).length,
       resellers: Object.values(state.users).filter(u => u.tier === 'reseller').length,
@@ -901,10 +977,16 @@ app.get('/api/state', guard, (req, res) => {
       rev: state.rev,
       dirty: dirty ? 1 : 0
     },
-    users: Object.values(state.users).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    orders: Object.values(state.orders).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 200),
-    stockSummary: summary,
     stockTotal: st.filter(k => k.status === 'available').length,
+    live: { lastPull: lastPullAt, lastPullOk, lastReload, sync: ghReady() }
+  };
+  if (req.query.lite) return res.json(base);
+
+  res.json({
+    ...base,
+    users: Object.values(state.users).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
+    orders: Object.values(state.orders).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 200),
+    stockSummary: summary,
     stock: st.filter(k => k.status === 'available').slice(0, 400),
     pricing: state.pricing,
     settings: {
@@ -984,6 +1066,7 @@ app.post('/api/user/:id', guard, async (req, res) => {
 });
 
 app.post('/api/order/:id/:action', guard, async (req, res) => {
+  await freshen();
   const { id, action } = req.params;
   const reason = String((req.body || {}).reason || '');
   const out = await mutate(s => {
@@ -1145,7 +1228,13 @@ app.post('/api/genkey', guard, async (req, res) => {
   res.json({ ok: true, key });
 });
 
-async function sendShot(res, fileId) {
+async function sendShot(res, orderId, fileId) {
+  /* local copy first, telegram as fallback */
+  const local = shotFile(orderId);
+  if (local) {
+    res.setHeader('Cache-Control', 'no-store');
+    return res.sendFile(local);
+  }
   if (!fileId) return res.status(404).json({ error: 'no proof on this order' });
   try {
     let fp = shots.get(fileId);
@@ -1165,16 +1254,15 @@ async function sendShot(res, fileId) {
 }
 
 app.get('/api/shot/:orderId', guard, async (req, res) => {
-  syncFromDisk();
+  await freshen();
   const o = state.orders[req.params.orderId];
-  if (!o) return res.status(404).json({ error: 'order not found' });
-  return sendShot(res, o.screenshotFileId);
+  return sendShot(res, req.params.orderId, o ? o.screenshotFileId : null);
 });
 
-app.get('/api/shotfile/:fileId', guard, (req, res) => sendShot(res, req.params.fileId));
+app.get('/api/shotfile/:fileId', guard, (req, res) => sendShot(res, req.params.fileId, req.params.fileId));
 
 app.get('/health', (req, res) => {
-  res.json({ ok: true, rev: state.rev, stock: totalAvailable(state), sync: ghReady() ? (state.settings.githubLastError ? 'error' : 'ok') : 'off', up: Math.round(process.uptime()) });
+  res.json({ ok: true, rev: state.rev, stock: totalAvailable(state), users: Object.keys(state.users).length, sync: ghReady() ? (state.settings.githubLastError ? 'error' : 'ok') : 'off', up: Math.round(process.uptime()) });
 });
 app.get('/panel', (req, res) => res.sendFile(path.join(__dirname, 'public', 'panel.html')));
 app.get('/', (req, res) => res.redirect('/panel'));
@@ -1186,9 +1274,7 @@ loadState();
   if (ghReady()) {
     try {
       const r = await withTimeout(pullState(), BOOT_PULL_TIMEOUT, 'boot pull');
-      if (r.imported) console.log('state restored from repo, rev', state.rev);
-      else if (r.legacy) console.log('legacy stock imported:', r.legacy);
-      else await pushState('boot');
+      if (r.imported) console.log('state merged from repo, rev', state.rev);
     } catch (e) {
       console.warn('boot pull failed:', e.message);
       if (/404/.test(e.message)) pushState('boot').catch(() => {});
@@ -1198,10 +1284,11 @@ loadState();
   app.listen(PORT, '0.0.0.0', () => console.log(`panel: http://localhost:${PORT}/panel`));
 
   setInterval(syncFromDisk, DISK_POLL);
+  pullTimer = setInterval(() => { pullIfNewer().catch(() => {}); }, REMOTE_POLL);
   heartbeat = setInterval(() => { if (dirty) flush().catch(() => {}); }, SYNC_HEARTBEAT);
 
   bot.launch().then(() => {
-    console.log('bot online · rev', state.rev, '· stock', totalAvailable(state));
+    console.log('bot online · rev', state.rev, '· stock', totalAvailable(state), '· users', Object.keys(state.users).length);
     notifyAdmins(`✅ Bot online · rev ${state.rev} · stock ${totalAvailable(state)}${ghReady() ? '' : ' · SYNC OFF'}`);
   });
 })();
@@ -1211,6 +1298,7 @@ const shutdown = async sig => {
   if (closing) return;
   closing = true;
   clearInterval(heartbeat);
+  clearInterval(pullTimer);
   clearTimeout(pushTimer);
   try { await forceFlush(); } catch {}
   try { bot.stop(sig); } catch {}
