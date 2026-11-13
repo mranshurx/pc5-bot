@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 99,
-  "savedAt": "2026-11-13T14:29:19.326Z",
+  "rev": 101,
+  "savedAt": "2026-11-13T14:29:45.360Z",
   "reason": "auto",
   "state": {
-    "rev": 99,
+    "rev": 101,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -78,7 +78,7 @@
         "createdAt": "2026-11-13T14:04:08.371Z",
         "totalSpent": 0,
         "keyCount": 0,
-        "lastSeen": "2026-11-13T14:28:31.354Z"
+        "lastSeen": "2026-11-13T14:29:41.038Z"
       }
     },
     "orders": {
