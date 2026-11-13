@@ -68,6 +68,12 @@ const priceFor = (pr, u, plan, dev) => {
   return Math.max(100, Math.ceil(base * mult / 100) * 100);
 };
 
+/* full reseller rate card — every enabled pack, reseller price only */
+const resellerList = () => state.pricing.plans
+  .filter(p => p.on !== false)
+  .map(p => `• ${p.label} — *${inr(p.reseller)}*`)
+  .join('\n') || '—';
+
 /* ================= STORE ================= */
 const FILE = path.join(DATA_DIR, 'state.json');
 const BAK = path.join(DATA_DIR, 'state.bak.json');
@@ -771,10 +777,21 @@ bot.hears(BTN.reseller, async ctx => {
   syncFromDisk();
   const u = state.users[String(ctx.from.id)];
   if (!u) return ctx.reply('/start first');
-  if (u.tier === 'reseller') return ctx.reply('🏪 Already a reseller.');
+
+  const list = resellerList();
+
+  if (u.tier === 'reseller') {
+    return ctx.reply(
+      `🏪 *Reseller rates*\nYou are already a reseller — every key bills at these rates.\n\n${list}`,
+      { parse_mode: 'Markdown' }
+    );
+  }
+
   const fee = inr(state.pricing.resellerFee);
-  const sample = state.pricing.plans.filter(p => p.on).slice(0, 3).map(p => `• ${p.label}: ${inr(p.retail)} → *${inr(p.reseller)}*`).join('\n');
-  await ctx.reply(`🏪 *Reseller Pack*\nOne-time *${fee}*\n\n${sample}`, { parse_mode: 'Markdown', ...Markup.inlineKeyboard([[Markup.button.callback(`Pay ${fee}`, 'rsl')]]) });
+  await ctx.reply(
+    `🏪 *Reseller Pack*\nOne-time *${fee}* — then every key at the rates below.\n\n${list}`,
+    { parse_mode: 'Markdown', ...Markup.inlineKeyboard([[Markup.button.callback(`Pay ${fee}`, 'rsl')]]) }
+  );
 });
 
 bot.action('rsl', async ctx => {
