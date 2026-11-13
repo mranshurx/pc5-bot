@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 97,
-  "savedAt": "2026-11-13T14:29:02.191Z",
+  "rev": 99,
+  "savedAt": "2026-11-13T14:29:19.326Z",
   "reason": "auto",
   "state": {
-    "rev": 97,
+    "rev": 99,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -72,7 +72,7 @@
         "username": "CYBERxANGSHU",
         "firstName": "CYBERxANGSHU",
         "tier": "normal",
-        "credit": 0,
+        "credit": 5000,
         "banned": false,
         "resellerSince": null,
         "createdAt": "2026-11-13T14:04:08.371Z",
@@ -100,7 +100,7 @@
         "username": "CYBERxANGSHU",
         "type": "topup",
         "amount": 5000,
-        "status": "pending_review",
+        "status": "approved",
         "screenshotFileId": "AgACAgUAAxkBAAICpmr3GSs_iE8tzVHGXXkoA9DO_WmRAAILF2sbaBm4V11s2o7Bd_knAQADAgADdwADPQQ",
         "screenshotLocal": "1002.jpg",
         "createdAt": "2026-11-13T14:28:31.354Z",
