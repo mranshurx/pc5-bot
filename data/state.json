@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 78,
-  "savedAt": "2026-11-13T12:57:59.037Z",
+  "rev": 80,
+  "savedAt": "2026-11-13T12:58:54.993Z",
   "reason": "auto",
   "state": {
-    "rev": 78,
+    "rev": 80,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -1666,6 +1666,106 @@
         "deviceLimit": "single",
         "status": "available",
         "addedAt": "2026-11-13T12:57:55.034Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-4M35WY": {
+        "key": "PC5-4M35WY",
+        "planId": "30d",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:58:50.992Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-9487HY": {
+        "key": "PC5-9487HY",
+        "planId": "30d",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:58:50.992Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-GRT1TI": {
+        "key": "PC5-GRT1TI",
+        "planId": "30d",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:58:50.992Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-A6ZPWK": {
+        "key": "PC5-A6ZPWK",
+        "planId": "30d",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:58:50.992Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-36QGKJ": {
+        "key": "PC5-36QGKJ",
+        "planId": "30d",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:58:50.992Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-OX87II": {
+        "key": "PC5-OX87II",
+        "planId": "30d",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:58:50.992Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-UFJU1N": {
+        "key": "PC5-UFJU1N",
+        "planId": "30d",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:58:50.992Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-W0K4KY": {
+        "key": "PC5-W0K4KY",
+        "planId": "30d",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:58:50.992Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-OOJHH7": {
+        "key": "PC5-OOJHH7",
+        "planId": "30d",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:58:50.992Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-1AXX9Z": {
+        "key": "PC5-1AXX9Z",
+        "planId": "30d",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:58:50.992Z",
         "soldAt": null,
         "soldTo": null,
         "orderId": null
