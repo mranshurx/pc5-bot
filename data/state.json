@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 107,
-  "savedAt": "2026-11-13T14:31:47.784Z",
+  "rev": 113,
+  "savedAt": "2026-11-13T14:33:00.803Z",
   "reason": "auto",
   "state": {
-    "rev": 107,
+    "rev": 113,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -72,13 +72,25 @@
         "username": "CYBERxANGSHU",
         "firstName": "CYBERxANGSHU",
         "tier": "normal",
-        "credit": 5000,
+        "credit": 15600,
         "banned": false,
         "resellerSince": null,
         "createdAt": "2026-11-13T14:04:08.371Z",
         "totalSpent": 0,
         "keyCount": 0,
         "lastSeen": "2026-11-13T14:31:36.490Z"
+      },
+      "8500841843": {
+        "id": 8500841843,
+        "username": "",
+        "firstName": "Rajen",
+        "tier": "normal",
+        "credit": 0,
+        "banned": false,
+        "resellerSince": null,
+        "createdAt": "2026-11-13T14:32:50.434Z",
+        "totalSpent": 0,
+        "keyCount": 0
       }
     },
     "orders": {
@@ -113,11 +125,11 @@
         "username": "CYBERxANGSHU",
         "type": "topup",
         "amount": 5000,
-        "status": "pending_review",
+        "status": "approved",
         "screenshotFileId": "AgACAgUAAxkBAAICvWr3Gv5n-7nJ2EdCJU2-Noma1VnkAAIYF2sbaBm4V1ZdrLGe_0aqAQADAgADdwADPQQ",
         "screenshotLocal": "1003.jpg",
         "createdAt": "2026-11-13T14:31:11.402Z",
-        "updatedAt": "2026-11-13T14:31:17.945Z",
+        "updatedAt": "2026-11-13T14:32:50.916Z",
         "note": ""
       },
       "1004": {
@@ -126,11 +138,11 @@
         "username": "CYBERxANGSHU",
         "type": "topup",
         "amount": 5600,
-        "status": "awaiting_payment",
+        "status": "approved",
         "screenshotFileId": null,
         "screenshotLocal": null,
         "createdAt": "2026-11-13T14:31:36.490Z",
-        "updatedAt": "2026-11-13T14:31:36.490Z",
+        "updatedAt": "2026-11-13T14:32:48.498Z",
         "note": ""
       }
     },
