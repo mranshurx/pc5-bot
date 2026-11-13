@@ -15,11 +15,20 @@ const PORT = Number(process.env.PORT || 8080);
 const QR_FILE = path.join(__dirname, 'public', 'qr.jpg');
 const isAdmin = id => ADMIN_IDS.includes(Number(id));
 
-const QR_TIMEOUT = 12000;          // max ms to wait for a QR upload
-const TG_TIMEOUT = 20000;          // max ms for any Telegram API call
-const SHOT_TTL = 15 * 60 * 1000;   // how long a "waiting for screenshot" state lives
+const QR_TIMEOUT = 12000;
+const TG_TIMEOUT = 20000;
+const SHOT_TTL = 15 * 60 * 1000;
+
+/* sync tuning */
+const SYNC_DEBOUNCE = 4000;        // coalesce bursts of mutations
+const SYNC_MIN_INTERVAL = 15000;   // never push faster than this
+const SYNC_HEARTBEAT = 10 * 60e3;  // safety push if dirty
+const BOOT_PULL_TIMEOUT = 20000;
+const PUSH_ATTEMPTS = 3;
 
 if (!BOT_TOKEN) { console.error('BOT_TOKEN missing in .env'); process.exit(1); }
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const withTimeout = (promise, ms, label) => {
   let t;
@@ -62,6 +71,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
 
 function blank() {
   return {
+    rev: 0,
     users: {}, orders: {}, stock: {},
     pricing: DEFAULT_PRICING(),
     settings: {
@@ -70,11 +80,13 @@ function blank() {
       botMaintenance: false,
       maintenanceMsg: 'Bot is under maintenance. Try again shortly.',
       minTopup: 2000, maxTopup: 500000,
+      ghAutoSync: true,
       githubToken: process.env.GITHUB_TOKEN || '',
       githubRepo: process.env.GITHUB_REPO || '',
-      githubPath: process.env.GITHUB_PATH || 'stock.json',
+      githubPath: process.env.GITHUB_PATH || 'data/state.json',
       githubBranch: process.env.GITHUB_BRANCH || 'main',
       githubLastSync: '',
+      githubLastRev: 0,
       githubLastError: ''
     },
     counters: { nextOrder: 1001 },
@@ -90,6 +102,7 @@ function normalize(raw) {
   s.settings = { ...b.settings, ...(s.settings || {}) };
   s.counters = { ...b.counters, ...(s.counters || {}) };
   s.log = Array.isArray(s.log) ? s.log.slice(-500) : [];
+  s.rev = Number(s.rev) || 0;
   if (!s.pricing || !Array.isArray(s.pricing.plans)) s.pricing = b.pricing;
   return s;
 }
@@ -115,13 +128,15 @@ function log(actor, text) {
   if (state.log.length > 500) state.log = state.log.slice(-500);
 }
 
-/* queue never stays rejected, so one bad mutation can't wedge the bot */
-function mutate(fn) {
+/* queue never stays rejected; quiet = don't mark dirty for sync */
+function mutate(fn, opts = {}) {
   const run = queue.then(async () => {
     const work = clone(state);
     const out = await fn(work);
+    work.rev = (work.rev || 0) + 1;
     writeSync(work);
     state = work;
+    if (!opts.quiet) markDirty();
     return out;
   });
   queue = run.then(() => {}, () => {});
@@ -156,20 +171,29 @@ function claimKey(s, plan, dev, uid, oid) {
   return hit;
 }
 
-/* ================= GITHUB STOCK SYNC ================= */
-const ghConfigured = () => !!(state.settings.githubToken && state.settings.githubRepo && state.settings.githubPath);
+/* ================= GITHUB FULL-STATE SYNC ================= */
+/* env wins over panel values, so a token never has to live inside the repo file */
+const GH = {
+  token: () => (process.env.GITHUB_TOKEN || state.settings.githubToken || '').trim(),
+  repo: () => (process.env.GITHUB_REPO || state.settings.githubRepo || '').trim(),
+  path: () => (process.env.GITHUB_PATH || state.settings.githubPath || 'data/state.json').trim().replace(/^\/+/, ''),
+  branch: () => (process.env.GITHUB_BRANCH || state.settings.githubBranch || 'main').trim() || 'main'
+};
+const envLocked = k => !!(process.env.GITHUB_TOKEN || (k === 'repo' && process.env.GITHUB_REPO));
+const ghReady = () => !!(GH.token() && GH.repo() && GH.path());
+const ghAutoOn = () => ghReady() && state.settings.ghAutoSync !== false;
 
-const ghContentsUrl = (s, withRef) => {
-  const p = String(s.githubPath || '').split('/').filter(Boolean).map(encodeURIComponent).join('/');
-  const base = `https://api.github.com/repos/${s.githubRepo}/contents/${p}`;
-  return withRef ? `${base}?ref=${encodeURIComponent(s.githubBranch || 'main')}` : base;
+const ghUrl = withRef => {
+  const p = GH.path().split('/').filter(Boolean).map(encodeURIComponent).join('/');
+  const base = `https://api.github.com/repos/${GH.repo()}/contents/${p}`;
+  return withRef ? `${base}?ref=${encodeURIComponent(GH.branch())}` : base;
 };
 
 function ghFetch(method, url, body) {
   return fetch(url, {
     method,
     headers: {
-      Authorization: `Bearer ${state.settings.githubToken}`,
+      Authorization: `Bearer ${GH.token()}`,
       Accept: 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
       'User-Agent': 'pc5-bot',
@@ -179,80 +203,130 @@ function ghFetch(method, url, body) {
   });
 }
 
-async function doPush(reason) {
-  const s = state.settings;
-  if (!ghConfigured()) return { ok: false, error: 'not configured' };
-  try {
-    let sha = null;
-    const head = await ghFetch('GET', ghContentsUrl(s, true));
-    if (head.ok) sha = (await head.json()).sha;
-    else if (head.status !== 404) throw new Error('read ' + head.status);
+/* token stripped so the committed file is safe to publish */
+function snapshotForRepo(reason) {
+  const snap = clone(state);
+  delete snap.settings.githubToken;
+  return { app: 'pc5-bot', version: 4, rev: snap.rev, savedAt: new Date().toISOString(), reason, state: snap };
+}
 
-    const payload = JSON.stringify({
-      updatedAt: new Date().toISOString(),
-      reason,
-      stock: state.stock
-    }, null, 2);
+let dirty = false;
+let pushing = false;
+let pushTimer = null;
+let lastPushAt = 0;
+let heartbeat = null;
 
-    const put = await ghFetch('PUT', ghContentsUrl(s, false), {
-      message: `stock sync: ${reason}`,
-      content: Buffer.from(payload).toString('base64'),
-      branch: s.githubBranch || 'main',
-      ...(sha ? { sha } : {})
-    });
-    if (!put.ok) throw new Error('write ' + put.status + ' ' + (await put.text()).slice(0, 120));
+function markDirty() {
+  dirty = true;
+  schedulePush();
+}
 
-    await mutate(x => { x.settings.githubLastSync = new Date().toISOString(); x.settings.githubLastError = ''; });
-    return { ok: true };
-  } catch (e) {
-    const msg = String(e.message || e).slice(0, 200);
-    await mutate(x => { x.settings.githubLastError = msg; });
-    return { ok: false, error: msg };
+function schedulePush() {
+  if (!ghAutoOn()) return;
+  clearTimeout(pushTimer);
+  const wait = Math.max(SYNC_DEBOUNCE, SYNC_MIN_INTERVAL - (Date.now() - lastPushAt), 0);
+  pushTimer = setTimeout(() => { flush().catch(() => {}); }, wait);
+}
+
+async function pushState(reason) {
+  if (!ghReady()) return { ok: false, error: 'not configured' };
+  const snap = snapshotForRepo(reason);
+  const body = JSON.stringify(snap, null, 2);
+  let lastErr = '';
+  for (let attempt = 1; attempt <= PUSH_ATTEMPTS; attempt++) {
+    try {
+      let sha = null;
+      const head = await ghFetch('GET', ghUrl(true));
+      if (head.ok) sha = (await head.json()).sha;
+      else if (head.status !== 404) throw new Error('read ' + head.status);
+
+      const put = await ghFetch('PUT', ghUrl(false), {
+        message: `state sync: ${reason} (rev ${snap.rev})`,
+        content: Buffer.from(body).toString('base64'),
+        branch: GH.branch(),
+        ...(sha ? { sha } : {})
+      });
+      if (!put.ok) throw new Error('write ' + put.status + ' ' + (await put.text()).slice(0, 120));
+
+      await mutate(x => {
+        x.settings.githubLastSync = new Date().toISOString();
+        x.settings.githubLastRev = snap.rev;
+        x.settings.githubLastError = '';
+      }, { quiet: true });
+      return { ok: true, rev: snap.rev };
+    } catch (e) {
+      lastErr = String(e.message || e).slice(0, 200);
+      if (attempt < PUSH_ATTEMPTS) await sleep(1200 * attempt);
+    }
+  }
+  await mutate(x => { x.settings.githubLastError = lastErr; }, { quiet: true });
+  return { ok: false, error: lastErr };
+}
+
+async function flush() {
+  if (pushing || !dirty) return;
+  if (!ghAutoOn()) { dirty = false; return; }
+  pushing = true;
+  dirty = false;
+  try { await pushState('auto'); }
+  finally {
+    pushing = false;
+    lastPushAt = Date.now();
+    if (dirty) schedulePush();
   }
 }
 
-let ghBusy = Promise.resolve();
-const pushStock = reason => {
-  ghBusy = ghBusy.then(() => doPush(reason), () => doPush(reason));
-  return ghBusy;
-};
-
-let ghTimer = null;
-function schedulePush(reason) {
-  if (!ghConfigured()) return;
-  clearTimeout(ghTimer);
-  ghTimer = setTimeout(() => { pushStock(reason).catch(() => {}); }, 1200);
+async function forceFlush() {
+  dirty = true;
+  for (let i = 0; i < 40 && pushing; i++) await sleep(250);
+  await flush();
 }
 
-async function pullStock() {
-  const s = state.settings;
-  if (!ghConfigured()) throw new Error('not configured');
-  const r = await ghFetch('GET', ghContentsUrl(s, true));
-  if (r.status === 404) return { added: 0 };
-  if (!r.ok) throw new Error('read ' + r.status);
+async function pullState() {
+  if (!ghReady()) throw new Error('not configured');
+  const r = await ghFetch('GET', ghUrl(true));
+  if (r.status === 404) return { imported: false, legacy: 0 };
 
+  if (!r.ok) throw new Error('read ' + r.status);
   const j = await r.json();
   let data;
   try { data = JSON.parse(Buffer.from(j.content || '', 'base64').toString('utf8')); }
   catch { throw new Error('remote file is not valid json'); }
 
-  const remote = (data && data.stock) || {};
-  const added = await mutate(x => {
-    let n = 0;
-    for (const [k, v] of Object.entries(remote)) {
-      if (x.stock[k] || !v || !v.planId) continue;
-      x.stock[k] = {
-        key: k, planId: v.planId,
-        deviceLimit: v.deviceLimit === 'unlimited' ? 'unlimited' : 'single',
-        status: 'available', addedAt: new Date().toISOString(),
-        soldAt: null, soldTo: null, orderId: null
-      };
-      n++;
-    }
-    log('github', `pulled ${n} keys`);
-    return n;
-  });
-  return { added };
+  const payload = data && data.state && typeof data.state === 'object' ? data.state : data;
+
+  if (payload && payload.users && payload.orders) {
+    await mutate(s => {
+      const token = s.settings.githubToken;
+      Object.keys(s).forEach(k => delete s[k]);
+      Object.assign(s, normalize(payload));
+      if (!s.settings.githubToken && token) s.settings.githubToken = token;
+      log('github', `pulled state rev ${s.rev || 0}`);
+    }, { quiet: true });
+    return { imported: true, legacy: 0 };
+  }
+
+  if (payload && payload.stock) {
+    const n = await mutate(s => {
+      let added = 0;
+      for (const [k, v] of Object.entries(payload.stock)) {
+        if (s.stock[k] || !v || !v.planId) continue;
+        s.stock[k] = {
+          key: k, planId: v.planId,
+          deviceLimit: v.deviceLimit === 'unlimited' ? 'unlimited' : 'single',
+          status: v.status === 'sold' ? 'sold' : 'available',
+          addedAt: new Date().toISOString(), soldAt: v.soldAt || null,
+          soldTo: v.soldTo || null, orderId: v.orderId || null
+        };
+        added++;
+      }
+      log('github', `legacy import ${added}`);
+      return added;
+    }, { quiet: true });
+    return { imported: false, legacy: n };
+  }
+
+  throw new Error('remote file has no usable data');
 }
 
 /* ================= BOT ================= */
@@ -281,7 +355,6 @@ function getPending(uid) {
   return p;
 }
 
-/* QR upload is bounded and never blocks the caller */
 async function sendPaymentQr(ctx, amount, orderId) {
   const caption = `Scan & pay *${inr(amount)}* · Order #${orderId}`;
   const opts = { caption, parse_mode: 'Markdown' };
@@ -355,7 +428,6 @@ bot.hears(BTN.credit, async ctx => {
     { parse_mode: 'Markdown', ...Markup.inlineKeyboard(rows) });
 });
 
-/* order is created, state is armed, text goes out instantly, QR follows */
 async function makeTopup(ctx, amount) {
   const out = await mutate(s => {
     const u = ensureUser(s, ctx.from);
@@ -484,7 +556,7 @@ bot.action(/^plan:(.+)$/, async ctx => {
   await ctx.answerCbQuery();
   const u = state.users[String(ctx.from.id)];
   const p = planById(state.pricing, ctx.match[1]);
-  if (!p) return;
+  if (!p || !u) return ctx.reply('Use /start first.');
   const rows = [];
   if (availCount(state, p.id, 'single')) rows.push([Markup.button.callback(`1 Device — ${inr(priceFor(state.pricing, u, p, 'single'))}`, `dev:${p.id}:single`)]);
   if (availCount(state, p.id, 'unlimited')) rows.push([Markup.button.callback(`Unlimited — ${inr(priceFor(state.pricing, u, p, 'unlimited'))}`, `dev:${p.id}:unlimited`)]);
@@ -499,7 +571,7 @@ bot.action(/^dev:(.+):(single|unlimited)$/, async ctx => {
   const u = state.users[String(ctx.from.id)];
   const p = planById(state.pricing, ctx.match[1]);
   const dev = ctx.match[2];
-  if (!p) return;
+  if (!p || !u) return;
   const price = priceFor(state.pricing, u, p, dev);
   await ctx.editMessageText(
     `*Confirm*\n${p.label} · ${dev}\nPrice *${inr(price)}*\nBalance ${inr(u.credit)}` + (u.credit < price ? `\n\n⚠️ Short ${inr(price - u.credit)}` : ''),
@@ -511,7 +583,7 @@ bot.action(/^pay:(.+):(single|unlimited)$/, async ctx => {
   const planId = ctx.match[1], dev = ctx.match[2];
   const u0 = state.users[String(ctx.from.id)];
   const p0 = planById(state.pricing, planId);
-  if (!p0) return ctx.answerCbQuery('Gone');
+  if (!p0 || !u0) return ctx.answerCbQuery('Gone');
   if (u0.credit < priceFor(state.pricing, u0, p0, dev)) return ctx.answerCbQuery('Not enough balance', { show_alert: true });
 
   let out;
@@ -537,7 +609,6 @@ bot.action(/^pay:(.+):(single|unlimited)$/, async ctx => {
     return ctx.answerCbQuery(e.message === 'stock' ? 'Sold out' : 'Failed', { show_alert: true });
   }
 
-  schedulePush('sold');
   await ctx.answerCbQuery('Delivered');
   await ctx.editMessageText(`✅ *Key*\n\n\`${out.key}\`\n${p0.label} · ${dev}\nCharged ${inr(out.cost)}\nBalance ${inr(out.bal)}`, { parse_mode: 'Markdown' });
   notifyAdmins(`🔑 ${out.key} → ${ctx.from.id} (${p0.label}, ${inr(out.cost)})`);
@@ -546,6 +617,7 @@ bot.action(/^pay:(.+):(single|unlimited)$/, async ctx => {
 /* ---- reseller ---- */
 bot.hears(BTN.reseller, async ctx => {
   const u = state.users[String(ctx.from.id)];
+  if (!u) return ctx.reply('/start first');
   if (u.tier === 'reseller') return ctx.reply('🏪 Already a reseller.');
   const fee = inr(state.pricing.resellerFee);
   const sample = state.pricing.plans.filter(p => p.on).slice(0, 3).map(p => `• ${p.label}: ${inr(p.retail)} → *${inr(p.reseller)}*`).join('\n');
@@ -555,6 +627,7 @@ bot.hears(BTN.reseller, async ctx => {
 bot.action('rsl', async ctx => {
   await ctx.answerCbQuery();
   const u = state.users[String(ctx.from.id)];
+  if (!u) return ctx.reply('/start first');
   if (u.tier === 'reseller') return ctx.reply('Already a reseller.');
   if (Object.values(state.orders).some(o => o.type === 'reseller' && o.userId === u.id && o.status === 'awaiting_payment'))
     return ctx.reply('You already have a reseller order open.');
@@ -615,7 +688,7 @@ bot.command('stats', async ctx => {
   await ctx.reply(`${us.length} users · ${us.filter(u => u.tier === 'reseller').length} resellers\n` +
     `${Object.values(state.stock).filter(k => k.status === 'available').length} in stock\n` +
     `${inr(us.reduce((a, u) => a + u.credit, 0))} credit held\n` +
-    `github: ${ghConfigured() ? (state.settings.githubLastError ? 'error' : 'ok') : 'off'}`);
+    `sync: ${ghReady() ? (state.settings.githubLastError ? 'error' : 'ok') : 'off'} · rev ${state.rev}`);
 });
 bot.command('stock', async ctx => {
   if (!isAdmin(ctx.from.id)) return;
@@ -623,9 +696,14 @@ bot.command('stock', async ctx => {
 });
 bot.command('sync', async ctx => {
   if (!isAdmin(ctx.from.id)) return;
-  if (!ghConfigured()) return ctx.reply('GitHub not configured.');
-  const r = await pushStock('manual');
-  await ctx.reply(r.ok ? '✅ Pushed to GitHub' : '❌ ' + r.error);
+  if (!ghReady()) return ctx.reply('Sync not configured.');
+  const r = await pushState('manual');
+  await ctx.reply(r.ok ? `✅ Pushed rev ${r.rev}` : '❌ ' + r.error);
+});
+bot.command('pull', async ctx => {
+  if (!isAdmin(ctx.from.id)) return;
+  try { const r = await pullState(); await ctx.reply(`✅ Pulled. imported=${r.imported} legacy=${r.legacy}`); }
+  catch (e) { await ctx.reply('❌ ' + e.message); }
 });
 bot.command('addcredit', async ctx => {
   if (!isAdmin(ctx.from.id)) return;
@@ -672,6 +750,16 @@ const jar = req => Object.fromEntries(String(req.headers.cookie || '').split(';'
   const i = p.indexOf('='); return i > 0 ? [p.slice(0, i).trim(), decodeURIComponent(p.slice(i + 1).trim())] : null;
 }).filter(Boolean));
 
+const loginHits = new Map();
+function loginAllowed(ip) {
+  const now = Date.now();
+  const rec = loginHits.get(ip) || { n: 0, at: now };
+  if (now - rec.at > 10 * 60e3) { rec.n = 0; rec.at = now; }
+  rec.n++;
+  loginHits.set(ip, rec);
+  return rec.n <= 12;
+}
+
 function guard(req, res, next) {
   const t = jar(req).sid;
   if (!t || !sessions.get(t) || sessions.get(t) < Date.now()) return res.status(401).json({ error: 'unauthorized' });
@@ -680,10 +768,12 @@ function guard(req, res, next) {
 }
 
 app.post('/api/login', (req, res) => {
+  const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || 'x';
+  if (!loginAllowed(ip)) return res.status(429).json({ error: 'too many attempts, wait 10 min' });
   if (!eq((req.body || {}).password || '', PANEL_PASSWORD)) return res.status(401).json({ error: 'wrong password' });
   const t = crypto.randomBytes(24).toString('hex');
   sessions.set(t, Date.now() + 8 * 3600e3);
-  res.setHeader('Set-Cookie', `sid=${t}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800`);
+  res.setHeader('Set-Cookie', `sid=${t}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800${req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}`);
   res.json({ ok: true });
 });
 
@@ -710,7 +800,9 @@ app.get('/api/state', guard, (req, res) => {
       creditHeld: Object.values(state.users).reduce((a, u) => a + u.credit, 0),
       pending: Object.values(state.orders).filter(o => o.status === 'pending_review').length,
       sold: Object.values(state.orders).filter(o => o.type === 'key').length,
-      available: st.filter(k => k.status === 'available').length
+      available: st.filter(k => k.status === 'available').length,
+      rev: state.rev,
+      dirty: dirty ? 1 : 0
     },
     users: Object.values(state.users).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     orders: Object.values(state.orders).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 200),
@@ -722,9 +814,11 @@ app.get('/api/state', guard, (req, res) => {
       maintenanceMsg: s.maintenanceMsg, minTopup: s.minTopup, maxTopup: s.maxTopup
     },
     github: {
-      repo: s.githubRepo, path: s.githubPath, branch: s.githubBranch,
-      hasToken: !!s.githubToken, tokenHint: maskToken(s.githubToken),
-      lastSync: s.githubLastSync, lastError: s.githubLastError
+      repo: GH.repo(), path: GH.path(), branch: GH.branch(),
+      hasToken: !!GH.token(), tokenHint: maskToken(GH.token()),
+      tokenLocked: !!process.env.GITHUB_TOKEN, repoLocked: !!process.env.GITHUB_REPO,
+      ready: ghReady(), auto: s.ghAutoSync !== false,
+      lastSync: s.githubLastSync, lastRev: s.githubLastRev, lastError: s.githubLastError
     },
     qrExists: fs.existsSync(QR_FILE),
     log: state.log.slice(-80).reverse()
@@ -756,21 +850,23 @@ app.post('/api/github', guard, async (req, res) => {
     if (typeof b.token === 'string' && b.token.trim()) s.settings.githubToken = b.token.trim();
     if (b.clearToken) s.settings.githubToken = '';
     if (b.repo != null) s.settings.githubRepo = String(b.repo).trim().replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '');
-    if (b.path != null) s.settings.githubPath = String(b.path).trim().replace(/^\/+/, '');
+    if (b.path != null) s.settings.githubPath = String(b.path).trim().replace(/^\/+/, '') || 'data/state.json';
     if (b.branch != null) s.settings.githubBranch = String(b.branch).trim() || 'main';
+    if (b.auto != null) s.settings.ghAutoSync = !!b.auto;
     s.settings.githubLastError = '';
-    log('panel', 'github config');
+    log('panel', 'sync config');
   });
+  if (ghReady() && state.settings.ghAutoSync) schedulePush();
   res.json({ ok: true });
 });
 
 app.post('/api/github/push', guard, async (req, res) => {
-  const r = await pushStock('panel');
+  const r = await pushState('panel');
   r.ok ? res.json(r) : res.status(400).json(r);
 });
 
 app.post('/api/github/pull', guard, async (req, res) => {
-  try { res.json({ ok: true, ...(await pullStock()) }); }
+  try { res.json({ ok: true, ...(await pullState()) }); }
   catch (e) { res.status(400).json({ ok: false, error: e.message }); }
 });
 
@@ -831,7 +927,6 @@ app.post('/api/stock/add', guard, async (req, res) => {
     log('panel', `stock +${added}`);
     return { added, dupes };
   });
-  if (out.added) schedulePush(`add +${out.added}`);
   res.json({ ok: true, ...out });
 });
 
@@ -852,7 +947,6 @@ app.post('/api/stock/gen', guard, async (req, res) => {
     log('panel', `stock gen +${made}`);
     return made;
   });
-  schedulePush(`gen +${added}`);
   res.json({ ok: true, added });
 });
 
@@ -864,7 +958,6 @@ app.post('/api/stock/remove', guard, async (req, res) => {
     log('panel', `stock -${n}`);
     return n;
   });
-  if (removed) schedulePush(`remove -${removed}`);
   res.json({ ok: true, removed });
 });
 
@@ -907,10 +1000,17 @@ app.get('/api/backup', guard, (req, res) => {
 app.post('/api/restore', guard, async (req, res) => {
   await mutate(s => {
     const token = s.settings.githubToken;
+    const repo = s.settings.githubRepo;
+    const p = s.settings.githubPath;
+    const br = s.settings.githubBranch;
     Object.keys(s).forEach(k => delete s[k]);
     Object.assign(s, normalize(req.body));
-    if (!s.settings.githubToken && token) s.settings.githubToken = token;
+    s.settings.githubToken = s.settings.githubToken || token;
+    s.settings.githubRepo = s.settings.githubRepo || repo;
+    s.settings.githubPath = s.settings.githubPath || p;
+    s.settings.githubBranch = s.settings.githubBranch || br;
   });
+  if (ghReady()) schedulePush();
   res.json({ ok: true });
 });
 
@@ -959,18 +1059,40 @@ app.get('/', (req, res) => res.redirect('/panel'));
 
 /* ================= BOOT ================= */
 loadState();
-app.listen(PORT, '0.0.0.0', () => console.log(`panel: http://localhost:${PORT}/panel`));
 
-bot.launch().then(async () => {
-  console.log('bot online');
-  notifyAdmins('✅ Bot online');
-  if (ghConfigured()) {
+(async () => {
+  if (ghReady()) {
     try {
-      const r = await pullStock();
-      if (r.added) notifyAdmins(`📥 Restored ${r.added} keys from GitHub`);
-    } catch (e) { console.warn('github pull failed:', e.message); }
+      const r = await withTimeout(pullState(), BOOT_PULL_TIMEOUT, 'boot pull');
+      if (r.imported) console.log('state restored from repo, rev', state.rev);
+      else if (r.legacy) console.log('legacy stock imported:', r.legacy);
+      else await pushState('boot');
+    } catch (e) {
+      console.warn('boot pull failed:', e.message);
+      if (/404/.test(e.message)) pushState('boot').catch(() => {});
+    }
   }
-});
-process.once('SIGINT', () => { bot.stop('SIGINT'); process.exit(0); });
-process.once('SIGTERM', () => { bot.stop('SIGTERM'); process.exit(0); });
+
+  app.listen(PORT, '0.0.0.0', () => console.log(`panel: http://localhost:${PORT}/panel`));
+
+  heartbeat = setInterval(() => { if (dirty) flush().catch(() => {}); }, SYNC_HEARTBEAT);
+
+  bot.launch().then(() => {
+    console.log('bot online');
+    notifyAdmins(`✅ Bot online · rev ${state.rev}${ghReady() ? '' : ' · SYNC OFF'}`);
+  });
+})();
+
+let closing = false;
+const shutdown = async sig => {
+  if (closing) return;
+  closing = true;
+  clearInterval(heartbeat);
+  clearTimeout(pushTimer);
+  try { await forceFlush(); } catch {}
+  try { bot.stop(sig); } catch {}
+  process.exit(0);
+};
+process.once('SIGINT', () => shutdown('SIGINT'));
+process.once('SIGTERM', () => shutdown('SIGTERM'));
 process.on('unhandledRejection', e => console.warn('[unhandled]', e && e.message));
