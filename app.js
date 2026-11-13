@@ -25,6 +25,7 @@ const SYNC_MIN_INTERVAL = 15000;   // never push faster than this
 const SYNC_HEARTBEAT = 10 * 60e3;  // safety push if dirty
 const BOOT_PULL_TIMEOUT = 20000;
 const PUSH_ATTEMPTS = 3;
+const DISK_POLL = 2000;            // re-read state.json written by another process
 
 if (!BOT_TOKEN) { console.error('BOT_TOKEN missing in .env'); process.exit(1); }
 
@@ -55,17 +56,24 @@ const DEFAULT_PRICING = () => ({
   ]
 });
 
-const inr = p => { const v = Math.round(p) / 100; return '₹' + (Number.isInteger(v) ? v : v.toFixed(2)); };
+const inr = p => { const v = Math.round(Number(p) || 0) / 100; return '₹' + (Number.isInteger(v) ? v : v.toFixed(2)); };
 const planById = (pr, id) => (pr.plans || []).find(p => p.id === id);
+/* never lose stock to a missing plan row */
+const planLoose = id => planById(state.pricing, id) || { id, hours: 0, label: id, retail: 0, reseller: 0, on: true };
 const priceFor = (pr, u, plan, dev) => {
-  const base = u.tier === 'reseller' ? plan.reseller : plan.retail;
-  return Math.ceil(base * (dev === 'unlimited' ? (pr.unlimitedMultiplier || 1.5) : 1) / 100) * 100;
+  const base = Number(u.tier === 'reseller' ? plan.reseller : plan.retail) || 0;
+  const mult = dev === 'unlimited' ? (Number(pr.unlimitedMultiplier) || 1.5) : 1;
+  return Math.max(100, Math.ceil(base * mult / 100) * 100);
 };
 
 /* ================= STORE ================= */
 const FILE = path.join(DATA_DIR, 'state.json');
+const BAK = path.join(DATA_DIR, 'state.bak.json');
 let state = null;
 let queue = Promise.resolve();
+let fileMtime = 0;
+let writing = false;
+let lastReload = 0;
 
 const clone = o => JSON.parse(JSON.stringify(o));
 
@@ -104,23 +112,67 @@ function normalize(raw) {
   s.log = Array.isArray(s.log) ? s.log.slice(-500) : [];
   s.rev = Number(s.rev) || 0;
   if (!s.pricing || !Array.isArray(s.pricing.plans)) s.pricing = b.pricing;
+  /* repair stock rows so plan/device mismatches can't hide keys */
+  for (const [k, v] of Object.entries(s.stock)) {
+    if (!v || typeof v !== 'object') { delete s.stock[k]; continue; }
+    v.key = k;
+    v.planId = String(v.planId || '').trim();
+    v.deviceLimit = v.deviceLimit === 'unlimited' ? 'unlimited' : 'single';
+    v.status = v.status === 'sold' ? 'sold' : 'available';
+  }
   return s;
+}
+
+/* unwrap both local state files and github snapshots */
+function parseStateText(raw) {
+  if (!raw || !raw.trim()) return null;
+  const j = JSON.parse(raw);
+  const payload = j && j.state && typeof j.state === 'object' ? j.state : j;
+  if (!payload || !payload.users) return null;
+  return normalize(payload);
 }
 
 function writeSync(s) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(FILE + '.tmp', JSON.stringify(s, null, 2));
-  fs.renameSync(FILE + '.tmp', FILE);
+  const json = JSON.stringify(s, null, 2);
+  writing = true;
+  try {
+    const fd = fs.openSync(FILE + '.tmp', 'w');
+    try { fs.writeSync(fd, json); try { fs.fsyncSync(fd); } catch {} } finally { fs.closeSync(fd); }
+    fs.renameSync(FILE + '.tmp', FILE);
+    try { fs.copyFileSync(FILE, BAK); } catch {}
+    fileMtime = fs.statSync(FILE).mtimeMs;
+  } finally { writing = false; }
 }
 
 function loadState() {
-  try {
-    state = normalize(fs.existsSync(FILE) ? JSON.parse(fs.readFileSync(FILE, 'utf8')) : null);
-  } catch (e) {
-    console.warn('state unreadable, starting fresh:', e.message);
-    state = blank();
+  for (const p of [FILE, BAK]) {
+    try {
+      if (!fs.existsSync(p)) continue;
+      const s = parseStateText(fs.readFileSync(p, 'utf8'));
+      if (!s) continue;
+      state = s;
+      fileMtime = fs.statSync(p).mtimeMs;
+      if (p === BAK) { console.warn('primary state unreadable, restored from backup'); writeSync(state); }
+      return;
+    } catch (e) { console.warn('state unreadable at', path.basename(p), '-', e.message); }
   }
-  if (!fs.existsSync(FILE)) writeSync(state);
+  state = blank();
+  writeSync(state);
+}
+
+/* adopt a newer file written by another process (panel, second instance) */
+function syncFromDisk() {
+  if (writing) return;
+  try {
+    if (!fs.existsSync(FILE)) return;
+    const m = fs.statSync(FILE).mtimeMs;
+    if (m <= fileMtime) return;
+    const s = parseStateText(fs.readFileSync(FILE, 'utf8'));
+    if (!s) return;
+    fileMtime = m;
+    if (s.rev >= state.rev) { state = s; lastReload = Date.now(); }
+  } catch {}
 }
 
 function log(actor, text) {
@@ -131,6 +183,7 @@ function log(actor, text) {
 /* queue never stays rejected; quiet = don't mark dirty for sync */
 function mutate(fn, opts = {}) {
   const run = queue.then(async () => {
+    syncFromDisk();
     const work = clone(state);
     const out = await fn(work);
     work.rev = (work.rev || 0) + 1;
@@ -159,10 +212,20 @@ function ensureUser(s, from) {
 }
 
 const availCount = (s, plan, dev) =>
-  Object.values(s.stock).filter(k => k.status === 'available' && k.planId === plan && k.deviceLimit === dev).length;
+  Object.values(s.stock).filter(k => k.status === 'available' && String(k.planId).trim() === String(plan).trim() && k.deviceLimit === dev).length;
+
+const totalAvailable = s => Object.values(s.stock).filter(k => k.status === 'available').length;
+
+function stockPlanIds() {
+  const ids = state.pricing.plans.map(p => p.id);
+  for (const k of Object.values(state.stock)) {
+    if (k.status === 'available' && !ids.includes(String(k.planId))) ids.push(String(k.planId));
+  }
+  return ids.filter(Boolean);
+}
 
 function claimKey(s, plan, dev, uid, oid) {
-  const hit = Object.values(s.stock).find(k => k.status === 'available' && k.planId === plan && k.deviceLimit === dev);
+  const hit = Object.values(s.stock).find(k => k.status === 'available' && String(k.planId).trim() === String(plan).trim() && k.deviceLimit === dev);
   if (!hit) return null;
   hit.status = 'sold';
   hit.soldAt = new Date().toISOString();
@@ -382,6 +445,7 @@ async function sendPaymentQr(ctx, amount, orderId) {
 
 bot.use(async (ctx, next) => {
   if (!ctx.from) return next();
+  syncFromDisk();
   const u = state.users[String(ctx.from.id)];
   if (u && u.banned && !isAdmin(ctx.from.id)) return ctx.reply('🚫 Banned. Contact support.');
   if (state.settings.botMaintenance && !isAdmin(ctx.from.id) && ctx.message && !ctx.message.text?.startsWith('/start')) {
@@ -401,12 +465,14 @@ bot.help(async ctx => ctx.reply(
 ));
 
 bot.hears(BTN.balance, async ctx => {
+  syncFromDisk();
   const u = state.users[String(ctx.from.id)];
   if (!u) return ctx.reply('/start first');
   await ctx.reply(`💰 Balance: *${inr(u.credit)}*\nTier: ${u.tier.toUpperCase()}\nKeys: ${u.keyCount}\nSpent: ${inr(u.totalSpent)}`, { parse_mode: 'Markdown' });
 });
 
 bot.hears(BTN.mykeys, async ctx => {
+  syncFromDisk();
   const mine = Object.values(state.orders)
     .filter(o => o.type === 'key' && o.userId === Number(ctx.from.id) && o.key)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 15);
@@ -421,6 +487,7 @@ bot.hears(BTN.mykeys, async ctx => {
 const TOPUPS = [5000, 10000, 20000, 50000, 100000];
 
 bot.hears(BTN.credit, async ctx => {
+  syncFromDisk();
   const rows = [];
   for (let i = 0; i < TOPUPS.length; i += 2) rows.push(TOPUPS.slice(i, i + 2).map(a => Markup.button.callback(inr(a), `tup:${a}`)));
   rows.push([Markup.button.callback('✏️ Custom', 'tup:custom')]);
@@ -469,6 +536,7 @@ bot.action('tup:custom', async ctx => {
 
 /* ---- screenshot ---- */
 bot.on(['photo', 'document'], async ctx => {
+  syncFromDisk();
   const st = getPending(ctx.from.id);
 
   const isImageDoc = !ctx.message.document || /^image\//.test(ctx.message.document.mime_type || '');
@@ -535,16 +603,29 @@ bot.action(/^ord:no:(.+)$/, async ctx => {
 
 /* ---- buy ---- */
 function buyKb(u) {
-  const rows = [];
-  for (const p of state.pricing.plans) {
-    if (!p.on) continue;
-    if (!availCount(state, p.id, 'single') && !availCount(state, p.id, 'unlimited')) continue;
-    rows.push([Markup.button.callback(`${p.label} — ${inr(priceFor(state.pricing, u, p, 'single'))}`, `plan:${p.id}`)]);
-  }
+  const build = respectOn => {
+    const rows = [];
+    for (const id of stockPlanIds()) {
+      const p = planLoose(id);
+      if (respectOn && p.on === false) continue;
+      const single = availCount(state, id, 'single');
+      const unl = availCount(state, id, 'unlimited');
+      if (!single && !unl) continue;
+      const cheapest = Math.min(
+        single ? priceFor(state.pricing, u, p, 'single') : Infinity,
+        unl ? priceFor(state.pricing, u, p, 'unlimited') : Infinity
+      );
+      rows.push([Markup.button.callback(`${p.label} — ${inr(cheapest)}`, `plan:${id}`)]);
+    }
+    return rows;
+  };
+  let rows = build(true);
+  if (!rows.length) rows = build(false);
   return Markup.inlineKeyboard(rows);
 }
 
 bot.hears(BTN.buy, async ctx => {
+  syncFromDisk();
   const u = state.users[String(ctx.from.id)];
   if (!u) return ctx.reply('/start first');
   const kb = buyKb(u);
@@ -554,8 +635,9 @@ bot.hears(BTN.buy, async ctx => {
 
 bot.action(/^plan:(.+)$/, async ctx => {
   await ctx.answerCbQuery();
+  syncFromDisk();
   const u = state.users[String(ctx.from.id)];
-  const p = planById(state.pricing, ctx.match[1]);
+  const p = planById(state.pricing, ctx.match[1]) || planLoose(ctx.match[1]);
   if (!p || !u) return ctx.reply('Use /start first.');
   const rows = [];
   if (availCount(state, p.id, 'single')) rows.push([Markup.button.callback(`1 Device — ${inr(priceFor(state.pricing, u, p, 'single'))}`, `dev:${p.id}:single`)]);
@@ -568,8 +650,9 @@ bot.action('home', async ctx => { await ctx.answerCbQuery(); await ctx.editMessa
 
 bot.action(/^dev:(.+):(single|unlimited)$/, async ctx => {
   await ctx.answerCbQuery();
+  syncFromDisk();
   const u = state.users[String(ctx.from.id)];
-  const p = planById(state.pricing, ctx.match[1]);
+  const p = planById(state.pricing, ctx.match[1]) || planLoose(ctx.match[1]);
   const dev = ctx.match[2];
   if (!p || !u) return;
   const price = priceFor(state.pricing, u, p, dev);
@@ -581,8 +664,9 @@ bot.action(/^dev:(.+):(single|unlimited)$/, async ctx => {
 
 bot.action(/^pay:(.+):(single|unlimited)$/, async ctx => {
   const planId = ctx.match[1], dev = ctx.match[2];
+  syncFromDisk();
   const u0 = state.users[String(ctx.from.id)];
-  const p0 = planById(state.pricing, planId);
+  const p0 = planById(state.pricing, planId) || planLoose(planId);
   if (!p0 || !u0) return ctx.answerCbQuery('Gone');
   if (u0.credit < priceFor(state.pricing, u0, p0, dev)) return ctx.answerCbQuery('Not enough balance', { show_alert: true });
 
@@ -590,7 +674,7 @@ bot.action(/^pay:(.+):(single|unlimited)$/, async ctx => {
   try {
     out = await mutate(s => {
       const u = s.users[String(ctx.from.id)];
-      const p = planById(s.pricing, planId);
+      const p = planById(s.pricing, planId) || planLoose(planId);
       const cost = priceFor(s.pricing, u, p, dev);
       if (u.credit < cost) throw new Error('funds');
       const id = String(s.counters.nextOrder++);
@@ -616,6 +700,7 @@ bot.action(/^pay:(.+):(single|unlimited)$/, async ctx => {
 
 /* ---- reseller ---- */
 bot.hears(BTN.reseller, async ctx => {
+  syncFromDisk();
   const u = state.users[String(ctx.from.id)];
   if (!u) return ctx.reply('/start first');
   if (u.tier === 'reseller') return ctx.reply('🏪 Already a reseller.');
@@ -626,6 +711,7 @@ bot.hears(BTN.reseller, async ctx => {
 
 bot.action('rsl', async ctx => {
   await ctx.answerCbQuery();
+  syncFromDisk();
   const u = state.users[String(ctx.from.id)];
   if (!u) return ctx.reply('/start first');
   if (u.tier === 'reseller') return ctx.reply('Already a reseller.');
@@ -684,15 +770,18 @@ bot.on('text', async ctx => {
 /* ---- admin commands ---- */
 bot.command('stats', async ctx => {
   if (!isAdmin(ctx.from.id)) return;
+  syncFromDisk();
   const us = Object.values(state.users);
   await ctx.reply(`${us.length} users · ${us.filter(u => u.tier === 'reseller').length} resellers\n` +
-    `${Object.values(state.stock).filter(k => k.status === 'available').length} in stock\n` +
+    `${totalAvailable(state)} in stock\n` +
     `${inr(us.reduce((a, u) => a + u.credit, 0))} credit held\n` +
     `sync: ${ghReady() ? (state.settings.githubLastError ? 'error' : 'ok') : 'off'} · rev ${state.rev}`);
 });
 bot.command('stock', async ctx => {
   if (!isAdmin(ctx.from.id)) return;
-  await ctx.reply(state.pricing.plans.map(p => `${p.label}: ${availCount(state, p.id, 'single')} single / ${availCount(state, p.id, 'unlimited')} unl`).join('\n'));
+  syncFromDisk();
+  await ctx.reply(state.pricing.plans.map(p => `${p.label}: ${availCount(state, p.id, 'single')} single / ${availCount(state, p.id, 'unlimited')} unl`).join('\n') +
+    `\n\ntotal available: ${totalAvailable(state)}`);
 });
 bot.command('sync', async ctx => {
   if (!isAdmin(ctx.from.id)) return;
@@ -786,12 +875,20 @@ app.post('/api/logout', guard, (req, res) => {
 const maskToken = t => (t ? t.slice(0, 6) + '…' + t.slice(-4) : '');
 
 app.get('/api/state', guard, (req, res) => {
+  syncFromDisk();
   const st = Object.values(state.stock);
   const summary = {};
   for (const p of state.pricing.plans) summary[p.id] = {
     single: st.filter(k => k.status === 'available' && k.planId === p.id && k.deviceLimit === 'single').length,
     unlimited: st.filter(k => k.status === 'available' && k.planId === p.id && k.deviceLimit === 'unlimited').length
   };
+  for (const k of st) {
+    if (k.status !== 'available' || summary[k.planId]) continue;
+    summary[k.planId] = {
+      single: st.filter(x => x.status === 'available' && x.planId === k.planId && x.deviceLimit === 'single').length,
+      unlimited: st.filter(x => x.status === 'available' && x.planId === k.planId && x.deviceLimit === 'unlimited').length
+    };
+  }
   const s = state.settings;
   res.json({
     stats: {
@@ -807,6 +904,7 @@ app.get('/api/state', guard, (req, res) => {
     users: Object.values(state.users).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     orders: Object.values(state.orders).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 200),
     stockSummary: summary,
+    stockTotal: st.filter(k => k.status === 'available').length,
     stock: st.filter(k => k.status === 'available').slice(0, 400),
     pricing: state.pricing,
     settings: {
@@ -821,6 +919,7 @@ app.get('/api/state', guard, (req, res) => {
       lastSync: s.githubLastSync, lastRev: s.githubLastRev, lastError: s.githubLastError
     },
     qrExists: fs.existsSync(QR_FILE),
+    disk: { file: path.basename(FILE), bytes: fs.existsSync(FILE) ? fs.statSync(FILE).size : 0, lastReload },
     log: state.log.slice(-80).reverse()
   });
 });
@@ -910,11 +1009,19 @@ app.post('/api/order/:id/:action', guard, async (req, res) => {
   res.json({ ok: true });
 });
 
+/* resolve a plan id even when the row is gone, so adds never bounce */
+function resolvePlanId(raw) {
+  const id = String(raw || '').trim();
+  if (id && (planById(state.pricing, id) || Object.values(state.stock).some(k => k.planId === id))) return id;
+  const first = state.pricing.plans.find(p => p.on !== false) || state.pricing.plans[0];
+  return first ? first.id : '1h';
+}
+
 app.post('/api/stock/add', guard, async (req, res) => {
-  const { planId, deviceLimit, text } = req.body || {};
-  if (!planById(state.pricing, planId)) return res.status(400).json({ error: 'bad plan' });
-  const dev = deviceLimit === 'unlimited' ? 'unlimited' : 'single';
-  const keys = String(text || '').split(/[\s,;]+/).map(k => k.trim().toUpperCase()).filter(Boolean);
+  syncFromDisk();
+  const planId = resolvePlanId((req.body || {}).planId);
+  const dev = (req.body || {}).deviceLimit === 'unlimited' ? 'unlimited' : 'single';
+  const keys = String((req.body || {}).text || '').split(/[\s,;]+/).map(k => k.trim().toUpperCase()).filter(Boolean);
   if (!keys.length) return res.status(400).json({ error: 'no keys' });
 
   const out = await mutate(s => {
@@ -924,17 +1031,17 @@ app.post('/api/stock/add', guard, async (req, res) => {
       s.stock[k] = { key: k, planId, deviceLimit: dev, status: 'available', addedAt: new Date().toISOString(), soldAt: null, soldTo: null, orderId: null };
       added++;
     }
-    log('panel', `stock +${added}`);
-    return { added, dupes };
+    log('panel', `stock +${added} (${planId}/${dev})`);
+    return { added, dupes, planId, total: Object.values(s.stock).filter(x => x.status === 'available').length };
   });
   res.json({ ok: true, ...out });
 });
 
 app.post('/api/stock/gen', guard, async (req, res) => {
-  const { planId, deviceLimit, count } = req.body || {};
-  if (!planById(state.pricing, planId)) return res.status(400).json({ error: 'bad plan' });
-  const dev = deviceLimit === 'unlimited' ? 'unlimited' : 'single';
-  const n = Math.min(Math.max(Number(count) || 1, 1), 500);
+  syncFromDisk();
+  const planId = resolvePlanId((req.body || {}).planId);
+  const dev = (req.body || {}).deviceLimit === 'unlimited' ? 'unlimited' : 'single';
+  const n = Math.min(Math.max(Number((req.body || {}).count) || 1, 1), 500);
   const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   const added = await mutate(s => {
     let made = 0;
@@ -944,13 +1051,14 @@ app.post('/api/stock/gen', guard, async (req, res) => {
       s.stock[k] = { key: k, planId, deviceLimit: dev, status: 'available', addedAt: new Date().toISOString(), soldAt: null, soldTo: null, orderId: null };
       made++;
     }
-    log('panel', `stock gen +${made}`);
+    log('panel', `stock gen +${made} (${planId}/${dev})`);
     return made;
   });
-  res.json({ ok: true, added });
+  res.json({ ok: true, added, planId });
 });
 
 app.post('/api/stock/remove', guard, async (req, res) => {
+  syncFromDisk();
   const keys = Array.isArray((req.body || {}).keys) ? req.body.keys : [];
   const removed = await mutate(s => {
     let n = 0;
@@ -1015,9 +1123,11 @@ app.post('/api/restore', guard, async (req, res) => {
 });
 
 app.post('/api/genkey', guard, async (req, res) => {
-  const { userId, planId, deviceLimit } = req.body || {};
+  syncFromDisk();
+  const { userId, deviceLimit } = req.body || {};
+  const planId = resolvePlanId((req.body || {}).planId);
   const u = state.users[String(userId)];
-  const p = planById(state.pricing, planId);
+  const p = planById(state.pricing, planId) || planLoose(planId);
   if (!u || !p) return res.status(400).json({ error: 'bad input' });
   const dev = deviceLimit === 'unlimited' ? 'unlimited' : 'single';
 
@@ -1035,26 +1145,36 @@ app.post('/api/genkey', guard, async (req, res) => {
   res.json({ ok: true, key });
 });
 
-app.get('/api/shot/:orderId', guard, async (req, res) => {
-  const o = state.orders[req.params.orderId];
-  if (!o || !o.screenshotFileId) return res.status(404).end();
+async function sendShot(res, fileId) {
+  if (!fileId) return res.status(404).json({ error: 'no proof on this order' });
   try {
-    let fp = shots.get(o.screenshotFileId);
+    let fp = shots.get(fileId);
     if (!fp) {
-      const j = await (await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${encodeURIComponent(o.screenshotFileId)}`)).json();
-      if (!j.ok) return res.status(404).end();
+      const j = await (await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${encodeURIComponent(fileId)}`)).json();
+      if (!j.ok) return res.status(404).json({ error: 'telegram: ' + (j.description || 'file gone') });
       fp = j.result.file_path;
-      shots.set(o.screenshotFileId, fp);
-      setTimeout(() => shots.delete(o.screenshotFileId), 45 * 60e3);
+      shots.set(fileId, fp);
+      setTimeout(() => shots.delete(fileId), 45 * 60e3);
     }
     const img = await fetch(`https://api.telegram.org/file/bot${BOT_TOKEN}/${fp}`);
-    if (!img.ok) return res.status(404).end();
+    if (!img.ok) return res.status(404).json({ error: 'telegram: ' + img.status });
     res.setHeader('Content-Type', img.headers.get('content-type') || 'image/jpeg');
+    res.setHeader('Cache-Control', 'no-store');
     res.send(Buffer.from(await img.arrayBuffer()));
-  } catch { res.status(500).end(); }
+  } catch (e) { res.status(500).json({ error: e.message }); }
+}
+
+app.get('/api/shot/:orderId', guard, async (req, res) => {
+  syncFromDisk();
+  const o = state.orders[req.params.orderId];
+  if (!o) return res.status(404).json({ error: 'order not found' });
+  return sendShot(res, o.screenshotFileId);
 });
+
+app.get('/api/shotfile/:fileId', guard, (req, res) => sendShot(res, req.params.fileId));
+
 app.get('/health', (req, res) => {
-  res.json({ ok: true, rev: state.rev, sync: ghReady() ? (state.settings.githubLastError ? 'error' : 'ok') : 'off', up: Math.round(process.uptime()) });
+  res.json({ ok: true, rev: state.rev, stock: totalAvailable(state), sync: ghReady() ? (state.settings.githubLastError ? 'error' : 'ok') : 'off', up: Math.round(process.uptime()) });
 });
 app.get('/panel', (req, res) => res.sendFile(path.join(__dirname, 'public', 'panel.html')));
 app.get('/', (req, res) => res.redirect('/panel'));
@@ -1077,11 +1197,12 @@ loadState();
 
   app.listen(PORT, '0.0.0.0', () => console.log(`panel: http://localhost:${PORT}/panel`));
 
+  setInterval(syncFromDisk, DISK_POLL);
   heartbeat = setInterval(() => { if (dirty) flush().catch(() => {}); }, SYNC_HEARTBEAT);
 
   bot.launch().then(() => {
-    console.log('bot online');
-    notifyAdmins(`✅ Bot online · rev ${state.rev}${ghReady() ? '' : ' · SYNC OFF'}`);
+    console.log('bot online · rev', state.rev, '· stock', totalAvailable(state));
+    notifyAdmins(`✅ Bot online · rev ${state.rev} · stock ${totalAvailable(state)}${ghReady() ? '' : ' · SYNC OFF'}`);
   });
 })();
 
