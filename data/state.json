@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 105,
-  "savedAt": "2026-11-13T14:31:31.682Z",
+  "rev": 107,
+  "savedAt": "2026-11-13T14:31:47.784Z",
   "reason": "auto",
   "state": {
-    "rev": 105,
+    "rev": 107,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -78,7 +78,7 @@
         "createdAt": "2026-11-13T14:04:08.371Z",
         "totalSpent": 0,
         "keyCount": 0,
-        "lastSeen": "2026-11-13T14:31:11.402Z"
+        "lastSeen": "2026-11-13T14:31:36.490Z"
       }
     },
     "orders": {
@@ -118,6 +118,19 @@
         "screenshotLocal": "1003.jpg",
         "createdAt": "2026-11-13T14:31:11.402Z",
         "updatedAt": "2026-11-13T14:31:17.945Z",
+        "note": ""
+      },
+      "1004": {
+        "id": "1004",
+        "userId": 8601285872,
+        "username": "CYBERxANGSHU",
+        "type": "topup",
+        "amount": 5600,
+        "status": "awaiting_payment",
+        "screenshotFileId": null,
+        "screenshotLocal": null,
+        "createdAt": "2026-11-13T14:31:36.490Z",
+        "updatedAt": "2026-11-13T14:31:36.490Z",
         "note": ""
       }
     },
@@ -2012,12 +2025,12 @@
       "githubRepo": "mranshurx/pc5-bot",
       "githubPath": "data/state.json",
       "githubBranch": "main",
-      "githubLastSync": "2026-11-13T14:31:16.529Z",
-      "githubLastRev": 103,
+      "githubLastSync": "2026-11-13T14:31:32.652Z",
+      "githubLastRev": 105,
       "githubLastError": ""
     },
     "counters": {
-      "nextOrder": 1004
+      "nextOrder": 1005
     },
     "log": []
   }
