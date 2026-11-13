@@ -1,325 +1,410 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="robots" content="noindex" />
-<title>PC5 Bot Control</title>
+<title>PC5 Panel</title>
 <style>
-  :root{--bg:#08080b;--card:#111116;--line:#22222b;--acc:#ff2a44;--txt:#e6e6ea;--mut:#8b8b95;--ok:#10b981;--warn:#f59e0b}
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--txt);font:13px/1.5 ui-monospace,monospace}
-  header{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--line)}
-  h1{font-size:14px;letter-spacing:.16em;margin:0;text-transform:uppercase}h1 span{color:var(--acc)}
-  .wrap{padding:20px;max-width:1320px;margin:0 auto}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px}
-  .stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
-  .stat b{display:block;font-size:22px;color:#fff}
-  .stat i{font-style:normal;font-size:10px;color:var(--mut);text-transform:uppercase;letter-spacing:.1em}
-  .cols{display:grid;grid-template-columns:1fr 390px;gap:20px;align-items:start}
-  @media(max-width:980px){.cols{grid-template-columns:1fr}}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
-  .card h2{font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:var(--mut);margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
-  table{width:100%;border-collapse:collapse;font-size:12px}
-  th{text-align:left;padding:8px;color:var(--mut);font-size:10px;text-transform:uppercase;border-bottom:1px solid var(--line)}
-  td{padding:8px;border-bottom:1px solid #17171e;vertical-align:middle}
-  input,select,textarea{width:100%;background:#0a0a0e;border:1px solid var(--line);color:#fff;border-radius:6px;padding:7px 9px;font:inherit;font-size:12px}
-  textarea{font-size:11px;line-height:1.7}
-  button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:7px 11px;font:inherit;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;cursor:pointer}
-  button.ghost{background:#1a1a22;border:1px solid var(--line)}button.ok{background:var(--ok)}button.warn{background:var(--warn);color:#000}
-  .row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-  .tag{padding:2px 7px;border-radius:5px;font-size:10px;font-weight:700;text-transform:uppercase}
-  .tag.rsl{background:rgba(16,185,129,.15);color:#34d399}.tag.norm{background:#1e1e26;color:#9a9aa4}
-  .tag.banned{background:rgba(239,68,68,.15);color:#f87171}.tag.pend{background:rgba(245,158,11,.15);color:#f59e0b}
-  .tag.ok{background:rgba(16,185,129,.15);color:#34d399}.tag.rej{background:rgba(239,68,68,.15);color:#f87171}
-  .shot{width:54px;height:54px;object-fit:cover;border-radius:6px;border:1px solid var(--line);cursor:pointer}
-  .key{font-size:11px;color:#dcdce2;word-break:break-all}
-  #login{position:fixed;inset:0;background:#05050a;display:flex;align-items:center;justify-content:center;z-index:50}
-  .box{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:26px;width:min(340px,90vw);text-align:center}
-  #toast{position:fixed;right:18px;bottom:18px;background:#1a1a22;border:1px solid #33333f;padding:10px 14px;border-radius:8px;display:none;z-index:99;max-width:70vw}
-  .muted{color:var(--mut)}.small{font-size:11px}.low{color:#f59e0b}
-  .err{color:#f87171}.good{color:#34d399}
-  #modal{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:60;padding:20px}
-  #modal img{max-width:92vw;max-height:88vh;border-radius:10px}
-  #qrPrev{width:100%;border-radius:8px;border:1px solid var(--line);background:#0a0a0e}
-  .lock{font-size:9px;color:var(--warn);text-transform:uppercase;letter-spacing:.1em}
-  .banner{background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.35);color:#fbbf24;padding:10px 12px;border-radius:8px;font-size:11px;margin-bottom:14px}
+  :root { --bg:#0d1117; --card:#161b22; --line:#30363d; --fg:#e6edf3; --dim:#8b949e; --acc:#2f81f7; --ok:#3fb950; --bad:#f85149; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.5 system-ui,sans-serif; background:var(--bg); color:var(--fg); }
+  header { display:flex; gap:8px; align-items:center; padding:10px 14px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:5; flex-wrap:wrap; }
+  header h1 { font-size:15px; margin:0 10px 0 0; }
+  button { background:var(--card); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:6px 11px; cursor:pointer; font:inherit; }
+  button:hover { border-color:var(--acc); }
+  button.primary { background:var(--acc); border-color:var(--acc); color:#fff; }
+  button.ok { background:#1a7f37; border-color:#1a7f37; color:#fff; }
+  button.bad { background:#a3302c; border-color:#a3302c; color:#fff; }
+  main { padding:14px; max-width:1100px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px; margin-bottom:12px; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .dim { color:var(--dim); }
+  .mono { font-family:ui-monospace,monospace; font-size:12px; }
+  input, textarea, select { background:#0d1117; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:7px; font:inherit; width:100%; }
+  textarea { min-height:90px; resize:vertical; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:7px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--dim); font-weight:500; font-size:12px; }
+  .pill { display:inline-block; padding:1px 7px; border-radius:20px; font-size:11px; border:1px solid var(--line); }
+  .pill.pending { color:#d29922; border-color:#d29922; }
+  .pill.paid, .pill.approved { color:var(--ok); border-color:var(--ok); }
+  .pill.rejected { color:var(--bad); border-color:var(--bad); }
+  .pill.awaiting_payment { color:var(--dim); }
+  .shot { max-width:150px; border-radius:6px; border:1px solid var(--line); cursor:zoom-in; display:block; }
+  #login { max-width:340px; margin:14vh auto; }
+  .tabs { display:flex; gap:6px; margin-bottom:12px; flex-wrap:wrap; }
+  .tabs button.active { background:var(--acc); border-color:var(--acc); color:#fff; }
+  #modal { position:fixed; inset:0; background:#000d; display:none; align-items:center; justify-content:center; padding:20px; z-index:50; }
+  #modal img { max-width:100%; max-height:100%; }
+  .hidden { display:none !important; }
+  #toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:var(--card); border:1px solid var(--line); padding:9px 16px; border-radius:8px; opacity:0; transition:opacity .2s; pointer-events:none; }
+  #toast.show { opacity:1; }
 </style>
 </head>
 <body>
-<div id="login"><div class="box">
-  <h1>PC5 <span>BOT CONTROL</span></h1>
-  <p class="muted small">panel password</p>
-  <input id="pw" type="password" style="text-align:center;margin-bottom:10px" />
-  <button id="pwBtn" style="width:100%">Unlock</button>
-  <p id="pwErr" class="small err" style="display:none">wrong password</p>
-</div></div>
 
-<header><h1>PC5 <span>BOT CONTROL</span></h1><div class="row">
-  <button class="ghost" id="backup">Backup</button>
-  <button class="ghost" id="restoreBtn">Restore</button>
-  <input type="file" id="restoreFile" accept="application/json" hidden />
-  <button class="ghost" id="refresh">Refresh</button>
-  <button class="ghost" id="logout">Logout</button>
-</div></header>
-
-<div class="wrap">
-  <div id="syncBanner"></div>
-  <div class="grid" id="stats"></div>
-  <div class="cols">
-    <div>
-      <div class="card"><h2>Add Keys To Stock</h2>
-        <div class="row"><select id="addPlan" style="flex:2"></select>
-          <select id="addDev" style="flex:1"><option value="single">1 device</option><option value="unlimited">unlimited</option></select></div>
-        <textarea id="addKeys" rows="6" placeholder="Paste keys — one per line or comma separated" style="margin-top:8px"></textarea>
-        <div class="row" style="margin-top:8px"><button id="addBtn">Add</button><span class="muted small">or</span>
-          <input id="genCount" type="number" value="10" style="width:70px" /><button class="ghost" id="genBtn">Generate</button></div>
-        <p class="small muted" style="margin:8px 0 0">Saved locally, then committed to your repo.</p>
-      </div>
-      <div class="card"><h2>Stock</h2>
-        <table><thead><tr><th>Plan</th><th>1 device</th><th>Unlimited</th></tr></thead><tbody id="stockSummary"></tbody></table>
-        <input id="stockFilter" placeholder="filter keys" style="margin:12px 0 8px" />
-        <table><thead><tr><th>Key</th><th>Plan</th><th>Device</th><th></th></tr></thead><tbody id="stockList"></tbody></table>
-      </div>
-      <div class="card"><h2>Pending Review</h2>
-        <table><thead><tr><th>#</th><th>User</th><th>Type</th><th>Amount</th><th>Proof</th><th></th></tr></thead><tbody id="pending"></tbody></table>
-      </div>
-      <div class="card"><h2>Users</h2>
-        <input id="search" placeholder="search id / username" style="margin-bottom:10px" />
-        <table><thead><tr><th>ID</th><th>User</th><th>Tier</th><th>Credit</th><th>Keys</th><th></th></tr></thead><tbody id="users"></tbody></table>
-      </div>
-      <div class="card"><h2>Orders</h2>
-        <table><thead><tr><th>#</th><th>User</th><th>Type</th><th>Amount</th><th>Status</th><th>Key</th></tr></thead><tbody id="orders"></tbody></table>
-      </div>
-      <div class="card"><h2>Log</h2><div id="log" class="small muted"></div></div>
-    </div>
-    <div>
-      <div class="card"><h2>Payment QR</h2>
-        <img id="qrPrev" alt="payment qr" />
-        <input type="file" id="qrFile" accept="image/*" style="margin-top:8px" />
-        <p class="small muted" id="qrNote" style="margin:8px 0 0">Sent to users on top-up and reseller purchase.</p>
-      </div>
-      <div class="card"><h2>Repo Sync (all data)</h2>
-        <p class="small muted" style="margin:0 0 10px">Users, balances, orders, stock, pricing and settings are committed to this file. Render restarts restore from it.</p>
-        <label class="small muted">Token <span id="tkLock" class="lock"></span></label>
-        <input id="ghToken" type="password" placeholder="ghp_... (contents:write)" autocomplete="off" />
-        <label class="small muted" style="display:block;margin-top:8px">Repo (owner/name) <span id="rpLock" class="lock"></span></label>
-        <input id="ghRepo" placeholder="youruser/pc5-data" />
-        <label class="small muted" style="display:block;margin-top:8px">File path</label>
-        <input id="ghPath" placeholder="data/state.json" />
-        <label class="small muted" style="display:block;margin-top:8px">Branch</label>
-        <input id="ghBranch" placeholder="main" />
-        <label class="small" style="display:block;margin:10px 0"><input type="checkbox" id="ghAuto" style="width:auto" /> Auto-sync on every change</label>
-        <div class="row" style="margin-top:6px"><button id="ghSave">Save</button>
-          <button class="ghost" id="ghPush">Push now</button><button class="ghost" id="ghPull">Pull now</button>
-          <button class="ghost" id="ghClear">Clear token</button></div>
-        <p id="ghStatus" class="small muted" style="margin:8px 0 0">not configured</p>
-      </div>
-      <div class="card"><h2>Settings</h2>
-        <label class="small muted">UPI ID</label><input id="upiId" />
-        <label class="small muted">UPI Name</label><input id="upiName" />
-        <label class="small" style="display:block;margin:10px 0"><input type="checkbox" id="maint" style="width:auto" /> Maintenance</label>
-        <label class="small muted">Message</label><textarea id="maintMsg" rows="2"></textarea>
-        <div class="row" style="margin-top:8px"><div style="flex:1"><label class="small muted">Min ₹</label><input id="minTopup" type="number" /></div>
-          <div style="flex:1"><label class="small muted">Max ₹</label><input id="maxTopup" type="number" /></div></div>
-        <button id="saveSettings" style="width:100%;margin-top:10px">Save</button>
-      </div>
-      <div class="card"><h2>Pricing (₹)</h2>
-        <table><thead><tr><th>Plan</th><th>Retail</th><th>Reseller</th><th>On</th></tr></thead><tbody id="pricing"></tbody></table>
-        <label class="small muted" style="display:block;margin-top:10px">Reseller fee ₹</label><input id="rslFee" type="number" />
-        <label class="small muted" style="display:block;margin-top:6px">Unlimited multiplier</label><input id="mult" type="number" step="0.1" />
-        <button id="savePricing" style="width:100%;margin-top:10px">Save</button>
-      </div>
-      <div class="card"><h2>Manual Issue</h2>
-        <input id="gkUser" placeholder="telegram id" />
-        <select id="gkPlan" style="margin-top:6px"></select>
-        <select id="gkDev" style="margin-top:6px"><option value="single">1 device</option><option value="unlimited">unlimited</option></select>
-        <button id="gkBtn" style="width:100%;margin-top:10px">Send Key</button>
-      </div>
+<div id="login" class="hidden">
+  <div class="card">
+    <h1 style="font-size:16px;margin:0 0 10px">PC5 Panel</h1>
+    <input id="pw" type="password" placeholder="Panel password" />
+    <div class="row" style="margin-top:10px">
+      <button class="primary" onclick="login()">Sign in</button>
+      <span id="loginErr" class="dim"></span>
     </div>
   </div>
 </div>
-<div id="modal"><img id="modalImg" alt="" /></div>
+
+<div id="app" class="hidden">
+  <header>
+    <h1>PC5</h1>
+    <span id="rev" class="dim mono"></span>
+    <span id="live" class="pill">offline</span>
+    <span style="flex:1"></span>
+    <button onclick="load()">Refresh</button>
+    <button onclick="logout()">Sign out</button>
+  </header>
+  <main>
+    <div class="tabs">
+      <button data-tab="orders" class="active">Payments</button>
+      <button data-tab="users">Users</button>
+      <button data-tab="stock">Stock</button>
+      <button data-tab="settings">Settings</button>
+      <button data-tab="log">Log</button>
+    </div>
+    <section id="tab-orders"></section>
+    <section id="tab-users" class="hidden"></section>
+    <section id="tab-stock" class="hidden"></section>
+    <section id="tab-settings" class="hidden"></section>
+    <section id="tab-log" class="hidden"></section>
+  </main>
+</div>
+
+<div id="modal" onclick="this.style.display='none'"><img id="modalImg" /></div>
 <div id="toast"></div>
 
 <script>
 let S = null;
-const $ = i => document.getElementById(i);
-const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const inr = p => '₹' + (Math.round(p) / 100);
-const toast = m => { const t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(t._t); t._t = setTimeout(() => t.style.display = 'none', 2600); };
+let es = null;
 
-async function api(p, b) {
-  const r = await fetch(p, { method: b === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json', 'X-Panel': '1' }, body: b === undefined ? undefined : JSON.stringify(b) });
-  if (r.status === 401) { $('login').style.display = 'flex'; throw new Error('unauth'); }
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
-  return r.json();
+const $ = (id) => document.getElementById(id);
+
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.classList.remove('show'), 2200);
 }
 
-$('pwBtn').onclick = async () => { try { await api('/api/login', { password: $('pw').value }); $('login').style.display = 'none'; load(); } catch (e) { $('pwErr').textContent = e.message === 'unauth' ? 'wrong password' : e.message; $('pwErr').style.display = 'block'; } };
-$('pw').onkeydown = e => { if (e.key === 'Enter') $('pwBtn').click(); };
-$('logout').onclick = async () => { await api('/api/logout', {}); $('login').style.display = 'flex'; };
-$('refresh').onclick = load;
-$('backup').onclick = async () => {
-  const r = await fetch('/api/backup', { headers: { 'X-Panel': '1' } });
-  if (!r.ok) return toast('failed');
-  const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = 'pc5-state.json'; a.click();
-};
-$('restoreBtn').onclick = () => $('restoreFile').click();
-$('restoreFile').onchange = async e => {
-  const f = e.target.files[0]; if (!f) return;
-  try { await api('/api/restore', JSON.parse(await f.text())); toast('restored'); load(); } catch (x) { toast(x.message); }
-};
-
-$('qrFile').onchange = async e => {
-  const f = e.target.files[0]; if (!f) return;
-  if (f.size > 6 * 1024 * 1024) return toast('max 6MB');
-  const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
-  try { await api('/api/qr', { dataUrl }); toast('qr saved'); load(); } catch (x) { toast(x.message); }
-  e.target.value = '';
-};
-
-$('ghSave').onclick = async () => {
-  try {
-    await api('/api/github', { token: $('ghToken').value, repo: $('ghRepo').value, path: $('ghPath').value, branch: $('ghBranch').value, auto: $('ghAuto').checked });
-    $('ghToken').value = ''; toast('saved'); load();
-  } catch (x) { toast(x.message); }
-};
-$('ghClear').onclick = async () => {
-  try { await api('/api/github', { clearToken: true }); toast('token cleared'); load(); } catch (x) { toast(x.message); }
-};
-$('ghPush').onclick = async () => {
-  try { const d = await api('/api/github/push', {}); toast('pushed rev ' + d.rev); load(); } catch (x) { toast(x.message); }
-};
-$('ghPull').onclick = async () => {
-  if (!confirm('Overwrite local data with the repo copy?')) return;
-  try { const d = await api('/api/github/pull', {}); toast('pulled imported=' + d.imported); load(); } catch (x) { toast(x.message); }
-};
-$('ghAuto').onchange = async () => {
-  try { await api('/api/github', { auto: $('ghAuto').checked }); toast('auto ' + ($('ghAuto').checked ? 'on' : 'off')); } catch (x) { toast(x.message); }
-};
-
-function draw() {
-  const st = S.stats;
-  $('stats').innerHTML = [['Users', st.users], ['Resellers', st.resellers], ['Credit', inr(st.creditHeld)], ['In stock', st.available], ['Sold', st.sold], ['Pending', st.pending], ['Rev', st.rev], ['Unsynced', st.dirty]]
-    .map(([k, v]) => `<div class="stat"><b>${esc(v)}</b><i>${esc(k)}</i></div>`).join('');
-
-  const g = S.github;
-  if (!g.ready) $('syncBanner').innerHTML = `<div class="banner">Repo sync is not configured — data lives only on this instance's disk and will be lost on restart. Fill in the Repo Sync card.</div>`;
-  else if (g.lastError) $('syncBanner').innerHTML = `<div class="banner">Last sync failed: ${esc(g.lastError)}</div>`;
-  else if (!g.auto) $('syncBanner').innerHTML = `<div class="banner">Auto-sync is OFF. Changes will not reach the repo.</div>`;
-  else $('syncBanner').innerHTML = '';
-
-  $('stockSummary').innerHTML = S.pricing.plans.map(p => {
-    const s = S.stockSummary[p.id] || { single: 0, unlimited: 0 };
-    return `<tr><td>${esc(p.label)}</td><td class="${s.single ? '' : 'low'}">${esc(s.single)}</td><td class="${s.unlimited ? '' : 'low'}">${esc(s.unlimited)}</td></tr>`;
-  }).join('');
-
-  const f = $('stockFilter').value.toLowerCase();
-  $('stockList').innerHTML = S.stock.filter(k => !f || k.key.toLowerCase().includes(f)).map(k => {
-    const p = S.pricing.plans.find(x => x.id === k.planId);
-    return `<tr><td class="key">${esc(k.key)}</td><td>${esc(p ? p.label : k.planId)}</td><td>${esc(k.deviceLimit)}</td><td><button class="ghost" data-del="${esc(k.key)}">del</button></td></tr>`;
-  }).join('') || '<tr><td colspan="4" class="muted">empty</td></tr>';
-
-  $('pending').innerHTML = S.orders.filter(o => o.status === 'pending_review').map(o => `
-    <tr><td>${esc(o.id)}</td><td>${esc(o.userId)}</td><td><span class="tag ${o.type === 'reseller' ? 'rsl' : 'norm'}">${esc(o.type)}</span></td><td>${inr(o.amount)}</td>
-    <td>${o.screenshotFileId ? `<img class="shot" src="/api/shot/${esc(o.id)}" data-shot="${esc(o.id)}" />` : '—'}</td>
-    <td><div class="row"><button class="ok" data-ok="${esc(o.id)}">✓</button><button class="warn" data-no="${esc(o.id)}">✕</button></div></td></tr>`).join('')
-    || '<tr><td colspan="6" class="muted">nothing</td></tr>';
-
-  const q = $('search').value.toLowerCase();
-  $('users').innerHTML = S.users.filter(u => !q || String(u.id).includes(q) || (u.username || '').toLowerCase().includes(q)).map(u => `
-    <tr><td>${esc(u.id)}</td><td>${esc(u.firstName)}${u.username ? ' <span class="muted small">@' + esc(u.username) + '</span>' : ''}${u.banned ? ' <span class="tag banned">ban</span>' : ''}</td>
-    <td><span class="tag ${u.tier === 'reseller' ? 'rsl' : 'norm'}">${esc(u.tier)}</span></td><td>${inr(u.credit)}</td><td>${esc(u.keyCount)}</td>
-    <td><div class="row"><button class="ghost" data-credit="${esc(u.id)}">₹</button><button class="ghost" data-tier="${esc(u.id)}">${u.tier === 'reseller' ? 'un-rsl' : 'rsl'}</button><button class="ghost" data-ban="${esc(u.id)}">${u.banned ? 'unban' : 'ban'}</button></div></td></tr>`).join('')
-    || '<tr><td colspan="6" class="muted">none</td></tr>';
-
-  $('orders').innerHTML = S.orders.slice(0, 50).map(o => `
-    <tr><td>${esc(o.id)}</td><td>${esc(o.userId)}</td><td>${esc(o.type)}</td><td>${inr(o.amount)}</td>
-    <td><span class="tag ${['approved', 'completed'].includes(o.status) ? 'ok' : o.status === 'rejected' ? 'rej' : o.status === 'pending_review' ? 'pend' : 'norm'}">${esc(o.status)}</span></td>
-    <td class="key">${esc(o.key || '—')}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">none</td></tr>';
-
-  $('log').innerHTML = S.log.map(l => `<div>${esc(new Date(l.at).toLocaleTimeString())} · ${esc(l.actor)} · ${esc(l.text)}</div>`).join('');
-
-  $('upiId').value = S.settings.upiId || '';
-  $('upiName').value = S.settings.upiName || '';
-  $('maint').checked = !!S.settings.botMaintenance;
-  $('maintMsg').value = S.settings.maintenanceMsg || '';
-  $('minTopup').value = S.settings.minTopup / 100;
-  $('maxTopup').value = S.settings.maxTopup / 100;
-  $('rslFee').value = S.pricing.resellerFee / 100;
-  $('mult').value = S.pricing.unlimitedMultiplier;
-
-  $('pricing').innerHTML = S.pricing.plans.map(p => `
-    <tr><td>${esc(p.label)}</td><td><input type="number" data-pr="${esc(p.id)}" value="${p.retail / 100}" style="width:70px"></td>
-    <td><input type="number" data-pw="${esc(p.id)}" value="${p.reseller / 100}" style="width:70px"></td>
-    <td><input type="checkbox" data-on="${esc(p.id)}" ${p.on ? 'checked' : ''} style="width:auto"></td></tr>`).join('');
-
-  const opts = S.pricing.plans.map(p => `<option value="${esc(p.id)}">${esc(p.label)}</option>`).join('');
-  $('gkPlan').innerHTML = opts;
-  if (!$('addPlan').dataset.r) { $('addPlan').innerHTML = opts; $('addPlan').dataset.r = '1'; }
-
-  if (S.qrExists) { $('qrPrev').src = '/api/qr?t=' + Date.now(); $('qrPrev').style.display = 'block'; $('qrNote').textContent = 'Sent to users on top-up and reseller purchase.'; }
-  else { $('qrPrev').removeAttribute('src'); $('qrPrev').style.display = 'none'; $('qrNote').textContent = 'No QR uploaded yet — upload one before users pay.'; }
-
-  $('ghRepo').value = g.repo || '';
-  $('ghPath').value = g.path || '';
-  $('ghBranch').value = g.branch || '';
-  $('ghToken').value = '';
-  $('ghToken').placeholder = g.hasToken ? g.tokenHint : 'ghp_... (contents:write)';
-  $('ghToken').disabled = g.tokenLocked;
-  $('ghRepo').disabled = g.repoLocked;
-  $('tkLock').textContent = g.tokenLocked ? 'env' : '';
-  $('rpLock').textContent = g.repoLocked ? 'env' : '';
-  $('ghAuto').checked = !!g.auto;
-  if (!g.ready) $('ghStatus').innerHTML = '<span class="err">not configured</span>';
-  else if (g.lastError) $('ghStatus').innerHTML = '<span class="err">' + esc(g.lastError) + '</span>';
-  else if (g.lastSync) $('ghStatus').innerHTML = '<span class="good">last sync ' + esc(new Date(g.lastSync).toLocaleString()) + ' · rev ' + esc(g.lastRev) + '</span>';
-  else $('ghStatus').textContent = 'configured, not synced yet';
+async function call(method, url, body) {
+  const r = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json', 'x-panel': '1' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (r.status === 401) { showLogin(); throw new Error('auth'); }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || 'failed');
+  return j;
 }
 
-async function load() { try { S = await api('/api/state'); draw(); } catch (e) { if (e.message !== 'unauth') toast(e.message); } }
-
-document.addEventListener('click', async e => {
-  const t = e.target;
+async function login() {
+  $('loginErr').textContent = '';
   try {
-    if (t.dataset.shot) { $('modalImg').src = '/api/shot/' + t.dataset.shot; $('modal').style.display = 'flex'; }
-    if (t.dataset.ok) { await api(`/api/order/${t.dataset.ok}/approve`, {}); toast('approved'); load(); }
-    if (t.dataset.no) { const reason = prompt('Reason') ?? ''; await api(`/api/order/${t.dataset.no}/reject`, { reason }); load(); }
-    if (t.dataset.del) { await api('/api/stock/remove', { keys: [t.dataset.del] }); load(); }
-    if (t.dataset.credit) { const v = prompt('Credit ₹ (negative to deduct)'); if (v !== null) { await api(`/api/user/${t.dataset.credit}`, { creditDelta: Number(v) }); load(); } }
-    if (t.dataset.tier) { const u = S.users.find(x => String(x.id) === t.dataset.tier); await api(`/api/user/${t.dataset.tier}`, { tier: u.tier === 'reseller' ? 'normal' : 'reseller' }); load(); }
-    if (t.dataset.ban) { const u = S.users.find(x => String(x.id) === t.dataset.ban); await api(`/api/user/${t.dataset.ban}`, { banned: !u.banned }); load(); }
-  } catch (x) { toast(x.message); }
+    const r = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: $('pw').value }),
+    });
+    if (!r.ok) { $('loginErr').textContent = 'Wrong password'; return; }
+    start();
+  } catch { $('loginErr').textContent = 'Network error'; }
+}
+
+async function logout() {
+  await fetch('/api/login', { method: 'POST' }).catch(() => {});
+  document.cookie = 'sid=; Max-Age=0; Path=/';
+  showLogin();
+}
+
+function showLogin() {
+  if (es) { es.close(); es = null; }
+  $('app').classList.add('hidden');
+  $('login').classList.remove('hidden');
+}
+
+function start() {
+  $('login').classList.add('hidden');
+  $('app').classList.remove('hidden');
+  load();
+  connect();
+}
+
+function connect() {
+  if (es) es.close();
+  es = new EventSource('/api/stream');
+  es.addEventListener('state', (e) => {
+    const d = JSON.parse(e.data);
+    $('live').textContent = 'live';
+    $('live').style.color = 'var(--ok)';
+    if (!S || d.rev !== S.rev) load();
+  });
+  es.onerror = () => {
+    $('live').textContent = 'reconnecting';
+    $('live').style.color = 'var(--bad)';
+  };
+}
+
+async function load() {
+  try {
+    S = await call('GET', '/api/state');
+  } catch { return; }
+  $('rev').textContent = 'rev ' + S.rev;
+  render();
+}
+
+function render() {
+  renderOrders();
+  renderUsers();
+  renderStock();
+  renderSettings();
+  if (!$('tab-log').classList.contains('hidden')) loadLog();
+}
+
+const money = (p) => '₹' + (p / 100).toFixed(2);
+const when = (t) => new Date(t).toLocaleString();
+
+function renderOrders() {
+  const orders = S.orders.slice().reverse();
+  const pending = orders.filter((o) => o.status === 'pending_review');
+  const rest = orders.filter((o) => o.status !== 'pending_review').slice(0, 60);
+
+  const row = (o, isPending) => `
+    <tr>
+      <td class="mono">${o.id}</td>
+      <td>${userLabel(o.userId)}</td>
+      <td>${o.amount ? money(o.amount) : '-'}</td>
+      <td><span class="pill ${o.status}">${o.status}</span></td>
+      <td class="dim">${when(o.createdAt)}</td>
+      <td>${o.shot ? `<img class="shot" src="/api/shot/${o.id}?v=${o.reviewedAt || o.submittedAt || o.createdAt}" onclick="zoom(this.src)" />` : '<span class="dim">—</span>'}</td>
+      <td>${isPending ? `<div class="row"><button class="ok" onclick="approve('${o.id}')">Approve</button><button class="bad" onclick="reject('${o.id}')">Reject</button></div>` : ''}</td>
+    </tr>`;
+
+  $('tab-orders').innerHTML = `
+    <div class="card">
+      <div class="row"><strong>Awaiting review</strong><span class="pill pending">${pending.length}</span></div>
+      ${pending.length ? `<table style="margin-top:8px"><thead><tr><th>ID</th><th>User</th><th>Amount</th><th>Status</th><th>Sent</th><th>Proof</th><th></th></tr></thead><tbody>${pending.map((o) => row(o, true)).join('')}</tbody></table>` : '<p class="dim">Nothing pending.</p>'}
+    </div>
+    <div class="card">
+      <strong>History</strong>
+      <table style="margin-top:8px"><thead><tr><th>ID</th><th>User</th><th>Amount</th><th>Status</th><th>Created</th><th>Proof</th><th></th></tr></thead><tbody>${rest.map((o) => row(o, false)).join('')}</tbody></table>
+    </div>`;
+}
+
+function userLabel(id) {
+  const u = S.users[id];
+  return u ? `${u.name}${u.username ? ' (@' + u.username + ')' : ''}<div class="dim mono">${id}</div>` : `<span class="mono dim">${id}</span>`;
+}
+
+function zoom(src) {
+  $('modalImg').src = src;
+  $('modal').style.display = 'flex';
+}
+
+async function approve(id) {
+  try { await call('POST', `/api/orders/${id}/approve`); toast('Approved'); } catch (e) { toast(e.message); }
+}
+async function reject(id) {
+  const note = prompt('Reason (optional)') || '';
+  try { await call('POST', `/api/orders/${id}/reject`, { note }); toast('Rejected'); } catch (e) { toast(e.message); }
+}
+
+function renderUsers() {
+  const users = Object.values(S.users).sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
+  const online = users.filter((u) => Date.now() - (u.lastSeen || 0) < 5 * 60 * 1000).length;
+
+  $('tab-users').innerHTML = `
+    <div class="card">
+      <div class="row"><strong>Users</strong><span class="dim">${users.length} total · ${online} active in 5 min</span></div>
+      <table style="margin-top:8px"><thead><tr><th>User</th><th>Balance</th><th>Flags</th><th>Last seen</th><th>Actions</th></tr></thead><tbody>
+      ${users.map((u) => `
+        <tr>
+          <td>${u.name}${u.username ? ' (@' + u.username + ')' : ''}<div class="dim mono">${u.id}</div></td>
+          <td>${money(u.balance)}</td>
+          <td>${u.reseller ? '<span class="pill">reseller</span> ' : ''}${u.banned ? '<span class="pill rejected">banned</span>' : ''}</td>
+          <td class="dim">${u.lastSeen ? when(u.lastSeen) : '-'}</td>
+          <td><div class="row">
+            <button onclick="credit('${u.id}')">Credit</button>
+            <button onclick="flag('${u.id}','reseller',${!u.reseller})">${u.reseller ? 'Unreseller' : 'Reseller'}</button>
+            <button onclick="flag('${u.id}','banned',${!u.banned})">${u.banned ? 'Unban' : 'Ban'}</button>
+            <button onclick="dm('${u.id}')">Message</button>
+          </div></td>
+        </tr>`).join('')}
+      </tbody></table>
+    </div>`;
+}
+
+async function credit(id) {
+  const v = prompt('Amount in rupees (negative to deduct)');
+  if (!v) return;
+  try { await call('POST', `/api/users/${id}/balance`, { rupees: Number(v) }); toast('Updated'); } catch (e) { toast(e.message); }
+}
+async function flag(id, key, val) {
+  try { await call('POST', `/api/users/${id}/flags`, { [key]: val }); toast('Updated'); } catch (e) { toast(e.message); }
+}
+async function dm(id) {
+  const text = prompt('Message');
+  if (!text) return;
+  try { await call('POST', `/api/users/${id}/message`, { text }); toast('Sent'); } catch (e) { toast(e.message); }
+}
+
+async function renderStock() {
+  let counts = {};
+  try { counts = await call('GET', '/api/stock'); } catch {}
+
+  $('tab-stock').innerHTML = `
+    <div class="card">
+      <strong>Stock</strong>
+      <table style="margin-top:8px"><thead><tr><th>Plan</th><th>Available</th><th>Total</th></tr></thead><tbody>
+      ${S.settings.plans.map((p) => {
+        const c = counts[p.id] || { available: 0, total: 0 };
+        return `<tr><td>${p.name}<div class="dim mono">${p.id}</div></td><td>${c.available}</td><td>${c.total}</td></tr>`;
+      }).join('')}
+      </tbody></table>
+    </div>
+    <div class="card">
+      <strong>Add keys</strong>
+      <div class="row" style="margin:8px 0">
+        <select id="stockPlan" style="flex:1">${S.settings.plans.map((p) => `<option value="${p.id}">${p.name}</option>`).join('')}</select>
+      </div>
+      <textarea id="stockKeys" placeholder="One key per line, or comma separated"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="primary" onclick="addKeys()">Add</button>
+        <input id="genCount" type="number" value="10" style="width:90px" />
+        <input id="genPrefix" value="PC5" style="width:110px" />
+        <button onclick="genKeys()">Generate</button>
+        <button onclick="purgeSold()">Purge sold</button>
+      </div>
+    </div>`;
+}
+
+async function addKeys() {
+  const planId = $('stockPlan').value;
+  const keys = $('stockKeys').value;
+  try {
+    const r = await call('POST', '/api/stock/add', { planId, keys });
+    $('stockKeys').value = '';
+    toast(`Added ${r.added}`);
+  } catch (e) { toast(e.message); }
+}
+async function genKeys() {
+  const planId = $('stockPlan').value;
+  try {
+    const r = await call('POST', '/api/stock/generate', { planId, count: Number($('genCount').value), prefix: $('genPrefix').value });
+    toast(`Generated ${r.added}`);
+  } catch (e) { toast(e.message); }
+}
+async function purgeSold() {
+  const planId = $('stockPlan').value;
+  try {
+    const r = await call('POST', '/api/stock/remove', { planId });
+    toast(`Removed ${r.removed} sold`);
+  } catch (e) { toast(e.message); }
+}
+
+function renderSettings() {
+  const s = S.settings;
+  $('tab-settings').innerHTML = `
+    <div class="card">
+      <div class="row"><strong>Maintenance</strong><input type="checkbox" id="maintenance" ${s.maintenance ? 'checked' : ''} style="width:auto" /></div>
+      <label class="dim">Banner</label>
+      <textarea id="banner">${esc(s.banner)}</textarea>
+      <label class="dim">UPI ID</label><input id="upiId" value="${esc(s.upiId)}" />
+      <label class="dim">UPI Name</label><input id="upiName" value="${esc(s.upiName)}" />
+      <div class="row" style="margin-top:8px">
+        <div style="flex:1"><label class="dim">Reseller fee (₹)</label><input id="resellerFee" type="number" value="${s.resellerFee / 100}" /></div>
+        <div style="flex:1"><label class="dim">Reseller discount (%)</label><input id="resellerDiscount" type="number" value="${s.resellerDiscount}" /></div>
+      </div>
+      <button class="primary" style="margin-top:10px" onclick="saveSettings()">Save</button>
+    </div>
+    <div class="card">
+      <strong>Plans</strong>
+      <table style="margin-top:8px"><thead><tr><th>ID</th><th>Name</th><th>Price ₹</th><th></th></tr></thead><tbody>
+      ${s.plans.map((p, i) => `<tr>
+        <td class="mono">${p.id}</td>
+        <td><input value="${esc(p.name)}" onchange="S.settings.plans[${i}].name=this.value" /></td>
+        <td><input type="number" value="${p.price / 100}" onchange="S.settings.plans[${i}].price=Math.round(this.value*100)" /></td>
+        <td><button class="bad" onclick="S.settings.plans.splice(${i},1);renderSettings()">×</button></td>
+      </tr>`).join('')}
+      </tbody></table>
+      <button style="margin-top:8px" onclick="addPlan()">Add plan</button>
+    </div>
+    <div class="card">
+      <strong>Sync</strong>
+      <div class="row" style="margin-top:8px">
+        <button onclick="push()">Push now</button>
+        <button onclick="pull()">Pull remote</button>
+        <span id="syncMsg" class="dim"></span>
+      </div>
+    </div>`;
+}
+
+const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function addPlan() {
+  const id = 'p' + (S.settings.plans.length + 1) + '_' + Date.now().toString(36).slice(-3);
+  S.settings.plans.push({ id, name: 'New plan', price: 1000, devices: 1 });
+  renderSettings();
+}
+
+async function saveSettings() {
+  try {
+    await call('POST', '/api/settings', {
+      maintenance: $('maintenance').checked,
+      banner: $('banner').value,
+      upiId: $('upiId').value,
+      upiName: $('upiName').value,
+      resellerFee: Number($('resellerFee').value),
+      resellerDiscount: Number($('resellerDiscount').value),
+      plans: S.settings.plans,
+      tiers: S.settings.tiers,
+    });
+    toast('Saved');
+  } catch (e) { toast(e.message); }
+}
+
+async function push() {
+  try { const r = await call('POST', '/api/sync/push'); $('syncMsg').textContent = r.ok ? 'pushed' : 'failed'; } catch (e) { $('syncMsg').textContent = e.message; }
+}
+async function pull() {
+  try { const r = await call('POST', '/api/sync/pull'); $('syncMsg').textContent = r.ok ? 'pulled' : r.reason; } catch (e) { $('syncMsg').textContent = e.message; }
+}
+
+async function loadLog() {
+  let log = [];
+  try { log = await call('GET', '/api/log'); } catch {}
+  $('tab-log').innerHTML = `<div class="card mono">${log.map((l) => `<div>${new Date(l.at).toLocaleTimeString()} · ${l.kind} · ${esc(l.text)}</div>`).join('') || '<span class="dim">Empty</span>'}</div>`;
+}
+
+document.querySelectorAll('.tabs button').forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll('.tabs button').forEach((x) => x.classList.remove('active'));
+    b.classList.add('active');
+    for (const t of ['orders', 'users', 'stock', 'settings', 'log']) {
+      $('tab-' + t).classList.toggle('hidden', t !== b.dataset.tab);
+    }
+    if (b.dataset.tab === 'log') loadLog();
+  };
 });
 
-$('modal').onclick = () => $('modal').style.display = 'none';
-$('search').oninput = draw;
-$('stockFilter').oninput = draw;
+$('pw').addEventListener('keydown', (e) => { if (e.key === 'Enter') login(); });
 
-$('addBtn').onclick = async () => {
-  try { const d = await api('/api/stock/add', { planId: $('addPlan').value, deviceLimit: $('addDev').value, text: $('addKeys').value }); toast(`+${d.added}, ${d.dupes} dupes`); $('addKeys').value = ''; load(); }
-  catch (x) { toast(x.message); }
-};
-$('genBtn').onclick = async () => {
-  try { const d = await api('/api/stock/gen', { planId: $('addPlan').value, deviceLimit: $('addDev').value, count: Number($('genCount').value) }); toast('+' + d.added); load(); }
-  catch (x) { toast(x.message); }
-};
-$('saveSettings').onclick = async () => {
-  await api('/api/settings', { upiId: $('upiId').value, upiName: $('upiName').value, botMaintenance: $('maint').checked, maintenanceMsg: $('maintMsg').value, minTopup: Number($('minTopup').value), maxTopup: Number($('maxTopup').value) });
-  toast('saved'); load();
-};
-$('savePricing').onclick = async () => {
-  const plans = S.pricing.plans.map(p => ({ id: p.id, hours: p.hours, label: p.label, retail: Number(document.querySelector(`[data-pr="${p.id}"]`).value), reseller: Number(document.querySelector(`[data-pw="${p.id}"]`).value), on: document.querySelector(`[data-on="${p.id}"]`).checked }));
-  await api('/api/pricing', { plans, resellerFee: Number($('rslFee').value), unlimitedMultiplier: Number($('mult').value) });
-  toast('saved'); load();
-};
-$('gkBtn').onclick = async () => {
-  try { const d = await api('/api/genkey', { userId: $('gkUser').value.trim(), planId: $('gkPlan').value, deviceLimit: $('gkDev').value }); toast('sent ' + d.key); load(); }
-  catch (x) { toast(x.message); }
-};
-load().catch(() => {});
-setInterval(() => { if (S) load().catch(() => {}); }, 15000);
+(async () => {
+  try {
+    const r = await fetch('/api/me');
+    if (r.ok) start(); else showLogin();
+  } catch { showLogin(); }
+})();
 </script>
 </body>
 </html>
