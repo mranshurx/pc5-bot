@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 13,
-  "savedAt": "2026-11-13T10:44:54.962Z",
+  "rev": 15,
+  "savedAt": "2026-11-13T12:32:50.999Z",
   "reason": "auto",
   "state": {
-    "rev": 13,
+    "rev": 15,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -69,7 +69,108 @@
       }
     },
     "orders": {},
-    "stock": {},
+    "stock": {
+      "PC5-1HDNOL": {
+        "key": "PC5-1HDNOL",
+        "planId": "1h",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:32:46.996Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-W02NIF": {
+        "key": "PC5-W02NIF",
+        "planId": "1h",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:32:46.997Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-TLHU25": {
+        "key": "PC5-TLHU25",
+        "planId": "1h",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:32:46.997Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-N18IG5": {
+        "key": "PC5-N18IG5",
+        "planId": "1h",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:32:46.997Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-XYBYXY": {
+        "key": "PC5-XYBYXY",
+        "planId": "1h",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:32:46.997Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-PDT00I": {
+        "key": "PC5-PDT00I",
+        "planId": "1h",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:32:46.997Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-PXE01K": {
+        "key": "PC5-PXE01K",
+        "planId": "1h",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:32:46.997Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-L4KMV2": {
+        "key": "PC5-L4KMV2",
+        "planId": "1h",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:32:46.997Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-2GFR20": {
+        "key": "PC5-2GFR20",
+        "planId": "1h",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:32:46.997Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-PJQRK4": {
+        "key": "PC5-PJQRK4",
+        "planId": "1h",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:32:46.997Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      }
+    },
     "pricing": {
       "resellerFee": 15000,
       "unlimitedMultiplier": 1.5,
