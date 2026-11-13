@@ -32,7 +32,7 @@
   .tag.rsl{background:rgba(16,185,129,.15);color:#34d399}.tag.norm{background:#1e1e26;color:#9a9aa4}
   .tag.banned{background:rgba(239,68,68,.15);color:#f87171}.tag.pend{background:rgba(245,158,11,.15);color:#f59e0b}
   .tag.ok{background:rgba(16,185,129,.15);color:#34d399}.tag.rej{background:rgba(239,68,68,.15);color:#f87171}
-  .shot{width:54px;height:54px;object-fit:cover;border-radius:6px;border:1px solid var(--line);cursor:pointer}
+  .shot{width:54px;height:54px;object-fit:cover;border-radius:6px;border:1px solid var(--line);cursor:pointer;background:#0a0a0e}
   .key{font-size:11px;color:#dcdce2;word-break:break-all}
   #login{position:fixed;inset:0;background:#05050a;display:flex;align-items:center;justify-content:center;z-index:50}
   .box{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:26px;width:min(340px,90vw);text-align:center}
@@ -44,6 +44,7 @@
   #qrPrev{width:100%;border-radius:8px;border:1px solid var(--line);background:#0a0a0e}
   .lock{font-size:9px;color:var(--warn);text-transform:uppercase;letter-spacing:.1em}
   .banner{background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.35);color:#fbbf24;padding:10px 12px;border-radius:8px;font-size:11px;margin-bottom:14px}
+  .bad{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.35);color:#f87171;padding:10px 12px;border-radius:8px;font-size:11px;margin-bottom:14px}
 </style>
 </head>
 <body>
@@ -74,9 +75,10 @@
         <textarea id="addKeys" rows="6" placeholder="Paste keys — one per line or comma separated" style="margin-top:8px"></textarea>
         <div class="row" style="margin-top:8px"><button id="addBtn">Add</button><span class="muted small">or</span>
           <input id="genCount" type="number" value="10" style="width:70px" /><button class="ghost" id="genBtn">Generate</button></div>
-        <p class="small muted" style="margin:8px 0 0">Saved locally, then committed to your repo.</p>
+        <p class="small muted" id="addNote" style="margin:8px 0 0">Saved locally, then committed to your repo.</p>
       </div>
       <div class="card"><h2>Stock</h2>
+        <p class="small" id="stockTotal" style="margin:0 0 10px"></p>
         <table><thead><tr><th>Plan</th><th>1 device</th><th>Unlimited</th></tr></thead><tbody id="stockSummary"></tbody></table>
         <input id="stockFilter" placeholder="filter keys" style="margin:12px 0 8px" />
         <table><thead><tr><th>Key</th><th>Plan</th><th>Device</th><th></th></tr></thead><tbody id="stockList"></tbody></table>
@@ -146,7 +148,7 @@
 let S = null;
 const $ = i => document.getElementById(i);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const inr = p => '₹' + (Math.round(p) / 100);
+const inr = p => '₹' + (Math.round(Number(p) || 0) / 100);
 const toast = m => { const t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(t._t); t._t = setTimeout(() => t.style.display = 'none', 2600); };
 
 async function api(p, b) {
@@ -205,14 +207,19 @@ function draw() {
     .map(([k, v]) => `<div class="stat"><b>${esc(v)}</b><i>${esc(k)}</i></div>`).join('');
 
   const g = S.github;
-  if (!g.ready) $('syncBanner').innerHTML = `<div class="banner">Repo sync is not configured — data lives only on this instance's disk and will be lost on restart. Fill in the Repo Sync card.</div>`;
-  else if (g.lastError) $('syncBanner').innerHTML = `<div class="banner">Last sync failed: ${esc(g.lastError)}</div>`;
-  else if (!g.auto) $('syncBanner').innerHTML = `<div class="banner">Auto-sync is OFF. Changes will not reach the repo.</div>`;
-  else $('syncBanner').innerHTML = '';
+  let banner = '';
+  if (st.available === 0 && st.users > 0) banner += `<div class="bad">Stock is empty but ${st.users} user(s) exist — the bot will answer "Out of stock". Add keys below.</div>`;
+  if (!g.ready) banner += `<div class="banner">Repo sync is not configured — data lives only on this instance's disk and will be lost on restart. Fill in the Repo Sync card.</div>`;
+  else if (g.lastError) banner += `<div class="banner">Last sync failed: ${esc(g.lastError)}</div>`;
+  else if (!g.auto) banner += `<div class="banner">Auto-sync is OFF. Changes will not reach the repo.</div>`;
+  $('syncBanner').innerHTML = banner;
 
-  $('stockSummary').innerHTML = S.pricing.plans.map(p => {
-    const s = S.stockSummary[p.id] || { single: 0, unlimited: 0 };
-    return `<tr><td>${esc(p.label)}</td><td class="${s.single ? '' : 'low'}">${esc(s.single)}</td><td class="${s.unlimited ? '' : 'low'}">${esc(s.unlimited)}</td></tr>`;
+  $('stockTotal').innerHTML = `Available: <b class="${S.stockTotal ? 'good' : 'err'}">${S.stockTotal}</b> · state rev ${S.stats.rev} · file ${esc(S.disk.file)} (${S.disk.bytes} B)${S.disk.lastReload ? ' · reloaded ' + esc(new Date(S.disk.lastReload).toLocaleTimeString()) : ''}`;
+
+  $('stockSummary').innerHTML = Object.keys(S.stockSummary).map(id => {
+    const s = S.stockSummary[id] || { single: 0, unlimited: 0 };
+    const p = S.pricing.plans.find(x => x.id === id);
+    return `<tr><td>${esc(p ? p.label : id)}</td><td class="${s.single ? '' : 'low'}">${esc(s.single)}</td><td class="${s.unlimited ? '' : 'low'}">${esc(s.unlimited)}</td></tr>`;
   }).join('');
 
   const f = $('stockFilter').value.toLowerCase();
@@ -223,7 +230,7 @@ function draw() {
 
   $('pending').innerHTML = S.orders.filter(o => o.status === 'pending_review').map(o => `
     <tr><td>${esc(o.id)}</td><td>${esc(o.userId)}</td><td><span class="tag ${o.type === 'reseller' ? 'rsl' : 'norm'}">${esc(o.type)}</span></td><td>${inr(o.amount)}</td>
-    <td>${o.screenshotFileId ? `<img class="shot" src="/api/shot/${esc(o.id)}" data-shot="${esc(o.id)}" />` : '—'}</td>
+    <td>${o.screenshotFileId ? `<img class="shot" src="/api/shot/${esc(o.id)}" data-shot="${esc(o.id)}" data-fid="${esc(o.screenshotFileId)}" onerror="this.replaceWith(Object.assign(document.createElement('button'),{className:'ghost',textContent:'view',onclick:()=>openFid('${esc(o.screenshotFileId)}')}))" />` : '—'}</td>
     <td><div class="row"><button class="ok" data-ok="${esc(o.id)}">✓</button><button class="warn" data-no="${esc(o.id)}">✕</button></div></td></tr>`).join('')
     || '<tr><td colspan="6" class="muted">nothing</td></tr>';
 
@@ -257,7 +264,12 @@ function draw() {
 
   const opts = S.pricing.plans.map(p => `<option value="${esc(p.id)}">${esc(p.label)}</option>`).join('');
   $('gkPlan').innerHTML = opts;
-  if (!$('addPlan').dataset.r) { $('addPlan').innerHTML = opts; $('addPlan').dataset.r = '1'; }
+  if (!$('addPlan').options.length) $('addPlan').innerHTML = opts;
+  else {
+    const cur = $('addPlan').value;
+    $('addPlan').innerHTML = opts;
+    if (cur && [...$('addPlan').options].some(o => o.value === cur)) $('addPlan').value = cur;
+  }
 
   if (S.qrExists) { $('qrPrev').src = '/api/qr?t=' + Date.now(); $('qrPrev').style.display = 'block'; $('qrNote').textContent = 'Sent to users on top-up and reseller purchase.'; }
   else { $('qrPrev').removeAttribute('src'); $('qrPrev').style.display = 'none'; $('qrNote').textContent = 'No QR uploaded yet — upload one before users pay.'; }
@@ -276,6 +288,11 @@ function draw() {
   else if (g.lastError) $('ghStatus').innerHTML = '<span class="err">' + esc(g.lastError) + '</span>';
   else if (g.lastSync) $('ghStatus').innerHTML = '<span class="good">last sync ' + esc(new Date(g.lastSync).toLocaleString()) + ' · rev ' + esc(g.lastRev) + '</span>';
   else $('ghStatus').textContent = 'configured, not synced yet';
+}
+
+function openFid(fid) {
+  $('modalImg').src = '/api/shotfile/' + encodeURIComponent(fid);
+  $('modal').style.display = 'flex';
 }
 
 async function load() { try { S = await api('/api/state'); draw(); } catch (e) { if (e.message !== 'unauth') toast(e.message); } }
@@ -298,8 +315,11 @@ $('search').oninput = draw;
 $('stockFilter').oninput = draw;
 
 $('addBtn').onclick = async () => {
-  try { const d = await api('/api/stock/add', { planId: $('addPlan').value, deviceLimit: $('addDev').value, text: $('addKeys').value }); toast(`+${d.added}, ${d.dupes} dupes`); $('addKeys').value = ''; load(); }
-  catch (x) { toast(x.message); }
+  try {
+    const d = await api('/api/stock/add', { planId: $('addPlan').value, deviceLimit: $('addDev').value, text: $('addKeys').value });
+    toast(`+${d.added}, ${d.dupes} dupes → ${d.total} in stock`);
+    $('addKeys').value = ''; load();
+  } catch (x) { toast(x.message); }
 };
 $('genBtn').onclick = async () => {
   try { const d = await api('/api/stock/gen', { planId: $('addPlan').value, deviceLimit: $('addDev').value, count: Number($('genCount').value) }); toast('+' + d.added); load(); }
