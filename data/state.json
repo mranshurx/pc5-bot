@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 31,
-  "savedAt": "2026-11-13T12:37:05.492Z",
+  "rev": 33,
+  "savedAt": "2026-11-13T12:37:21.372Z",
   "reason": "auto",
   "state": {
-    "rev": 31,
+    "rev": 33,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -269,16 +269,6 @@
         "soldAt": null,
         "soldTo": null,
         "orderId": null
-      },
-      "PC5-A1E4L5": {
-        "key": "PC5-A1E4L5",
-        "planId": "1h",
-        "deviceLimit": "single",
-        "status": "available",
-        "addedAt": "2026-11-13T12:36:05.142Z",
-        "soldAt": null,
-        "soldTo": null,
-        "orderId": null
       }
     },
     "pricing": {
@@ -370,8 +360,8 @@
       "githubRepo": "mranshurx/pc5-bot",
       "githubPath": "data/state.json",
       "githubBranch": "main",
-      "githubLastSync": "2026-11-13T12:32:52.624Z",
-      "githubLastRev": 15,
+      "githubLastSync": "2026-11-13T12:37:06.372Z",
+      "githubLastRev": 31,
       "githubLastError": ""
     },
     "counters": {
