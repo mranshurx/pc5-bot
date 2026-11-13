@@ -23,11 +23,10 @@ const {
   GITHUB_REPO = '',
   GITHUB_PATH = 'data/state.json',
   GITHUB_BRANCH = 'main',
-  RENDER_EXTERNAL_URL = '',
   SESSION_SECRET = crypto.randomBytes(32).toString('hex'),
 } = process.env;
 
-const PUBLIC_URL = String(process.env.PUBLIC_URL || '').replace(/\/+$/, '');
+const BASE_URL = String(process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_URL || '').replace(/\/+$/, '');
 
 if (!BOT_TOKEN) {
   console.error('BOT_TOKEN missing');
@@ -57,11 +56,7 @@ function blank() {
       upiName: UPI_NAME,
       resellerFee: 19900,
       resellerDiscount: 20,
-      plans: [
-        { id: 'p1', name: 'PC5 1 Day', price: 2900, devices: 1 },
-        { id: 'p2', name: 'PC5 7 Days', price: 14900, devices: 1 },
-        { id: 'p3', name: 'PC5 30 Days', price: 39900, devices: 1 },
-      ],
+      plans: [],
       tiers: [
         { label: '1 Device', mult: 1 },
         { label: '2 Devices', mult: 1.6 },
@@ -72,6 +67,20 @@ function blank() {
     orders: [],
     stock: {},
     log: [],
+  };
+}
+
+function keyEntry(raw) {
+  if (typeof raw === 'string') return { key: raw.trim(), sold: false, soldTo: null, soldAt: null };
+  if (!raw || typeof raw !== 'object') return null;
+  const key = String(raw.key ?? raw.value ?? raw.code ?? raw.license ?? '').trim();
+  if (!key) return null;
+  const sold = Boolean(raw.sold ?? raw.used ?? raw.taken ?? raw.soldOut);
+  return {
+    key,
+    sold,
+    soldTo: raw.soldTo ? String(raw.soldTo) : null,
+    soldAt: Number(raw.soldAt) || null,
   };
 }
 
@@ -86,17 +95,51 @@ function normalize(s) {
     settings: Object.assign(b.settings, s.settings || {}),
     users: s.users && typeof s.users === 'object' ? s.users : {},
     orders: Array.isArray(s.orders) ? s.orders : [],
-    stock: s.stock && typeof s.stock === 'object' ? s.stock : {},
+    stock: {},
     log: Array.isArray(s.log) ? s.log.slice(-LOG_CAP) : [],
   };
 
+  /* plans: settings.plans -> legacy top-level plans -> defaults */
   if (!Array.isArray(out.settings.plans) || !out.settings.plans.length) {
-    out.settings.plans = b.settings.plans;
+    if (Array.isArray(s.plans) && s.plans.length) out.settings.plans = s.plans;
+    else out.settings.plans = [
+      { id: 'p1', name: 'PC5 1 Day', price: 2900, devices: 1 },
+      { id: 'p2', name: 'PC5 7 Days', price: 14900, devices: 1 },
+      { id: 'p3', name: 'PC5 30 Days', price: 39900, devices: 1 },
+    ];
   }
+  out.settings.plans = out.settings.plans
+    .filter((p) => p && p.id)
+    .map((p) => ({
+      id: String(p.id),
+      name: String(p.name || p.id),
+      price: Number(p.price) || 0,
+      devices: Number(p.devices) || 1,
+    }));
+
   if (!Array.isArray(out.settings.tiers) || !out.settings.tiers.length) {
     out.settings.tiers = b.settings.tiers;
   }
 
+  /* stock: s.stock -> s.keys -> legacy shapes, canonicalised */
+  const rawStock =
+    (s.stock && typeof s.stock === 'object' && s.stock) ||
+    (s.keys && typeof s.keys === 'object' && s.keys) ||
+    {};
+
+  for (const [planId, arr] of Object.entries(rawStock)) {
+    const list = Array.isArray(arr) ? arr : Array.isArray(arr?.keys) ? arr.keys : Array.isArray(arr?.items) ? arr.items : [];
+    const mapped = list.map(keyEntry).filter(Boolean);
+    if (mapped.length || arr) out.stock[String(planId)] = mapped;
+  }
+
+  /* discover orphan buckets: create a plan so they are visible and buyable */
+  for (const planId of Object.keys(out.stock)) {
+    if (out.settings.plans.some((p) => p.id === planId)) continue;
+    out.settings.plans.push({ id: planId, name: planId, price: 1000, devices: 1 });
+  }
+
+  /* every plan gets a bucket */
   for (const p of out.settings.plans) {
     if (!Array.isArray(out.stock[p.id])) out.stock[p.id] = [];
   }
@@ -174,7 +217,11 @@ function ensureUser(src) {
 
 function priceFor(s, plan, tierIndex) {
   const tier = s.settings.tiers[tierIndex] || s.settings.tiers[0];
-  return Math.round(plan.price * (tier ? tier.mult : 1));
+  return Math.round((Number(plan.price) || 0) * (tier ? tier.mult : 1));
+}
+
+function available(planId) {
+  return (state.stock[planId] || []).filter((k) => !k.sold).length;
 }
 
 function claimKey(draft, planId) {
@@ -182,7 +229,7 @@ function claimKey(draft, planId) {
   if (!Array.isArray(list)) return null;
   const idx = list.findIndex((k) => !k.sold);
   if (idx === -1) return null;
-  list[idx].sold = true;
+  list[idx] = { ...keyEntry(list[idx]), sold: true };
   return list[idx].key;
 }
 
@@ -344,9 +391,10 @@ bot.action('mykeys', async (ctx) => {
 
 bot.action('buy', async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
-  const rows = state.settings.plans.map((p) => [
-    Markup.button.callback(`${p.name} — ₹${(p.price / 100).toFixed(0)}`, `plan:${p.id}`),
-  ]);
+  const rows = state.settings.plans.map((p) => {
+    const n = available(p.id);
+    return [Markup.button.callback(`${p.name} — ₹${(p.price / 100).toFixed(0)}${n ? '' : ' (0)'}`, `plan:${p.id}`)];
+  });
   rows.push([Markup.button.callback('Back', 'home')]);
   await ctx.editMessageText('Choose a plan:', Markup.inlineKeyboard(rows)).catch(() => {});
 });
@@ -603,7 +651,7 @@ bot.action('resbuy', async (ctx) => {
 
 const isAdmin = (ctx) => ADMINS.includes(ctx.from.id);
 
-bot.command('panel', (ctx) => isAdmin(ctx) && ctx.reply(PUBLIC_URL ? `${PUBLIC_URL}/panel` : 'No PUBLIC_URL set.'));
+bot.command('panel', (ctx) => isAdmin(ctx) && ctx.reply(BASE_URL ? `${BASE_URL}/panel` : 'No URL available.'));
 
 bot.command('stats', async (ctx) => {
   if (!isAdmin(ctx)) return;
@@ -615,11 +663,14 @@ bot.command('stats', async (ctx) => {
 
 bot.command('stock', async (ctx) => {
   if (!isAdmin(ctx)) return;
+  const ids = Object.keys(state.stock);
+  if (!ids.length) return ctx.reply('No stock buckets at all.');
   await ctx.reply(
-    state.settings.plans
-      .map((p) => {
-        const l = state.stock[p.id] || [];
-        return `${p.name}: ${l.filter((k) => !k.sold).length} available / ${l.length}`;
+    ids
+      .map((id) => {
+        const name = state.settings.plans.find((p) => p.id === id)?.name || id;
+        const l = state.stock[id] || [];
+        return `${name} [${id}]: ${l.filter((k) => !k.sold).length} available / ${l.length}`;
       })
       .join('\n')
   );
@@ -700,8 +751,6 @@ const app = express();
 
 app.get('/health', (req, res) => res.json({ ok: true, rev: state.rev, up: Math.floor(process.uptime()) }));
 
-if (PUBLIC_URL) app.use(bot.webhookCallback('/tg'));
-
 const api = express.Router();
 api.use(express.json({ limit: '4mb' }));
 
@@ -760,7 +809,7 @@ api.post('/login', (req, res) => {
   const exp = Date.now() + 8 * 3600 * 1000;
   res.setHeader(
     'Set-Cookie',
-    `sid=${exp}.${sign(String(exp))}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800${PUBLIC_URL.startsWith('https') ? '; Secure' : ''}`
+    `sid=${exp}.${sign(String(exp))}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800${BASE_URL.startsWith('https') ? '; Secure' : ''}`
   );
   res.json({ ok: true });
 });
@@ -878,7 +927,7 @@ bot.action(/^rej:(.+)$/, async (ctx) => {
   });
   if (!out) return ctx.answerCbQuery('Not pending');
   await ctx.answerCbQuery('Rejected');
-  await ctx.editMessageCaption(`${ctx.callbackQuery.message.caption}\n\nREJECTED`).catch(() => {});
+  await ctx.editMessageCaption(`${ctx.callbackMessage || ctx.callbackQuery.message.caption}\n\nREJECTED`).catch(() => {});
   try {
     await bot.telegram.sendMessage(out.userId, 'Payment rejected.');
   } catch {}
@@ -916,8 +965,11 @@ api.post('/users/:id/message', requireAuth, async (req, res) => {
   }
 });
 
+/* stock */
+
 api.post('/stock/add', requireAuth, async (req, res) => {
-  const planId = String(req.body.planId || '');
+  const planId = String(req.body.planId || '').trim();
+  if (!planId) return res.status(400).json({ error: 'no plan' });
   const keys = String(req.body.keys || '')
     .split(/[\s,]+/)
     .map((k) => k.trim())
@@ -940,7 +992,8 @@ api.post('/stock/add', requireAuth, async (req, res) => {
 });
 
 api.post('/stock/generate', requireAuth, async (req, res) => {
-  const planId = String(req.body.planId || '');
+  const planId = String(req.body.planId || '').trim();
+  if (!planId) return res.status(400).json({ error: 'no plan' });
   const count = Math.min(Number(req.body.count || 1), 500);
   const prefix = String(req.body.prefix || 'PC5').toUpperCase();
 
@@ -955,7 +1008,7 @@ api.post('/stock/generate', requireAuth, async (req, res) => {
 });
 
 api.post('/stock/remove', requireAuth, async (req, res) => {
-  const planId = String(req.body.planId || '');
+  const planId = String(req.body.planId || '').trim();
   const removed = await mutate((d) => {
     const before = (d.stock[planId] || []).length;
     d.stock[planId] = (d.stock[planId] || []).filter((k) => k.sold);
@@ -964,11 +1017,29 @@ api.post('/stock/remove', requireAuth, async (req, res) => {
   res.json({ ok: true, removed });
 });
 
+api.post('/stock/rename', requireAuth, async (req, res) => {
+  const from = String(req.body.from || '').trim();
+  const to = String(req.body.to || '').trim();
+  if (!from || !to) return res.status(400).json({ error: 'need from/to' });
+  await mutate((d) => {
+    if (!Array.isArray(d.stock[to])) d.stock[to] = [];
+    d.stock[to].push(...(d.stock[from] || []));
+    d.stock[from] = [];
+    const plan = d.settings.plans.find((p) => p.id === to);
+    if (!plan) d.settings.plans.push({ id: to, name: to, price: 1000, devices: 1 });
+  });
+  res.json({ ok: true });
+});
+
 api.get('/stock', requireAuth, (req, res) => {
   const out = {};
-  for (const p of state.settings.plans) {
-    const l = state.stock[p.id] || [];
-    out[p.id] = { available: l.filter((k) => !k.sold).length, total: l.length };
+  for (const [id, list] of Object.entries(state.stock)) {
+    out[id] = {
+      name: state.settings.plans.find((p) => p.id === id)?.name || id,
+      known: state.settings.plans.some((p) => p.id === id),
+      available: (list || []).filter((k) => !k.sold).length,
+      total: (list || []).length,
+    };
   }
   res.json(out);
 });
@@ -986,7 +1057,6 @@ api.post('/settings', requireAuth, async (req, res) => {
       s.plans = req.body.plans
         .filter((p) => p && p.id && p.name)
         .map((p) => ({ id: String(p.id), name: String(p.name).slice(0, 60), price: Math.round(Number(p.price)), devices: Number(p.devices) || 1 }));
-      for (const p of s.plans) if (!Array.isArray(d.stock[p.id])) d.stock[p.id] = [];
     }
     if (Array.isArray(req.body.tiers)) {
       s.tiers = req.body.tiers.filter((t) => t && t.label).map((t) => ({ label: String(t.label).slice(0, 30), mult: Number(t.mult) || 1 }));
@@ -1027,16 +1097,18 @@ async function boot() {
   try {
     legacy = JSON.parse(fs.readFileSync(LEGACY_STOCK, 'utf8'));
   } catch {}
-  if (legacy) {
+  if (legacy && typeof legacy === 'object') {
     for (const [planId, arr] of Object.entries(legacy)) {
-      if (!Array.isArray(arr)) continue;
+      const list = Array.isArray(arr) ? arr : Array.isArray(arr?.keys) ? arr.keys : [];
+      if (!list.length) continue;
       if (!Array.isArray(state.stock[planId])) state.stock[planId] = [];
       const have = new Set(state.stock[planId].map((k) => k.key));
-      for (const item of arr) {
-        const key = typeof item === 'string' ? item : item.key;
-        if (key && !have.has(key)) state.stock[planId].push({ key, sold: false, soldTo: null, soldAt: null });
+      for (const item of list) {
+        const e = keyEntry(item);
+        if (e && !have.has(e.key)) state.stock[planId].push(e);
       }
     }
+    state = normalize(state);
     log('boot', 'legacy stock.json merged');
   }
 
@@ -1048,25 +1120,20 @@ async function boot() {
     writeLocal();
   }
 
-  if (PUBLIC_URL) {
-    try {
-      await bot.telegram.setWebhook(`${PUBLIC_URL}/tg`, { drop_pending_updates: false });
-      const info = await bot.telegram.getWebhookInfo();
-      if (!info.url) throw new Error('webhook not registered');
-      console.log('webhook set:', info.url);
-    } catch (e) {
-      console.error('webhook failed, polling:', e.message);
-      await bot.telegram.deleteWebhook({ drop_pending_updates: false }).catch(() => {});
-      bot.launch({ dropPendingUpdates: false });
-    }
-  } else {
-    await bot.telegram.deleteWebhook({ drop_pending_updates: false }).catch(() => {});
-    bot.launch({ dropPendingUpdates: false });
-    console.log('polling');
-  }
+  await bot.telegram.deleteWebhook({ drop_pending_updates: false }).catch(() => {});
 
-  const self = PUBLIC_URL || RENDER_EXTERNAL_URL.replace(/\/+$/, '');
-  if (self) setInterval(() => fetch(`${self}/health`).catch(() => {}), 4 * 60 * 1000);
+  const launch = async () => {
+    try {
+      await bot.launch({ dropPendingUpdates: false });
+      console.log('polling started');
+    } catch (e) {
+      console.error('launch failed, retrying in 15s:', e.message);
+      setTimeout(launch, 15000);
+    }
+  };
+  launch();
+
+  if (BASE_URL) setInterval(() => fetch(`${BASE_URL}/health`).catch(() => {}), 4 * 60 * 1000);
 
   setInterval(() => {
     if (pushTimer === null) pushNow().catch(() => {});
@@ -1082,6 +1149,4 @@ process.on('SIGTERM', async () => {
 
 app.listen(Number(PORT), () => console.log(`listening on ${PORT}`));
 
-boot().catch((e) => {
-  console.error('boot failed', e);
-});
+boot().catch((e) => console.error('boot failed', e));
