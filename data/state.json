@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 68,
-  "savedAt": "2026-11-13T12:52:31.965Z",
+  "rev": 70,
+  "savedAt": "2026-11-13T12:53:02.533Z",
   "reason": "auto",
   "state": {
-    "rev": 68,
+    "rev": 70,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -1169,6 +1169,106 @@
         "soldAt": null,
         "soldTo": null,
         "orderId": null
+      },
+      "PC5-7NP8RK": {
+        "key": "PC5-7NP8RK",
+        "planId": "3d",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:52:58.532Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-1BPUSG": {
+        "key": "PC5-1BPUSG",
+        "planId": "3d",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:52:58.532Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-JCH94R": {
+        "key": "PC5-JCH94R",
+        "planId": "3d",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:52:58.532Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-R6JYQC": {
+        "key": "PC5-R6JYQC",
+        "planId": "3d",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:52:58.532Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-6JQ2Z3": {
+        "key": "PC5-6JQ2Z3",
+        "planId": "3d",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:52:58.532Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-0H9OK5": {
+        "key": "PC5-0H9OK5",
+        "planId": "3d",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:52:58.532Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-O1VMBC": {
+        "key": "PC5-O1VMBC",
+        "planId": "3d",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:52:58.532Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-WFYULV": {
+        "key": "PC5-WFYULV",
+        "planId": "3d",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:52:58.532Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-B56RFX": {
+        "key": "PC5-B56RFX",
+        "planId": "3d",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:52:58.532Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
+      },
+      "PC5-63FY49": {
+        "key": "PC5-63FY49",
+        "planId": "3d",
+        "deviceLimit": "single",
+        "status": "available",
+        "addedAt": "2026-11-13T12:52:58.532Z",
+        "soldAt": null,
+        "soldTo": null,
+        "orderId": null
       }
     },
     "pricing": {
@@ -1260,8 +1360,8 @@
       "githubRepo": "mranshurx/pc5-bot",
       "githubPath": "data/state.json",
       "githubBranch": "main",
-      "githubLastSync": "2026-11-13T12:48:17.455Z",
-      "githubLastRev": 60,
+      "githubLastSync": "2026-11-13T12:52:32.964Z",
+      "githubLastRev": 68,
       "githubLastError": ""
     },
     "counters": {
