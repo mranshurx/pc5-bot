@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 144,
-  "savedAt": "2026-11-13T17:00:07.694Z",
+  "rev": 146,
+  "savedAt": "2026-11-13T17:16:04.888Z",
   "reason": "auto",
   "state": {
-    "rev": 144,
+    "rev": 146,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -117,6 +117,18 @@
         "totalSpent": 0,
         "keyCount": 0,
         "lastSeen": "2026-11-13T17:00:03.554Z"
+      },
+      "5440490125": {
+        "id": 5440490125,
+        "username": "rexbackup52",
+        "firstName": "𝗥𝗘𝗫 𝗕𝗔𝗖𝗞𝗨𝗣 🦖",
+        "tier": "normal",
+        "credit": 0,
+        "banned": false,
+        "resellerSince": null,
+        "createdAt": "2026-11-13T17:16:00.659Z",
+        "totalSpent": 0,
+        "keyCount": 0
       }
     },
     "orders": {
