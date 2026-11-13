@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 84,
-  "savedAt": "2026-11-13T14:03:42.371Z",
+  "rev": 86,
+  "savedAt": "2026-11-13T14:04:12.373Z",
   "reason": "auto",
   "state": {
-    "rev": 84,
+    "rev": 86,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -64,6 +64,18 @@
         "banned": false,
         "resellerSince": null,
         "createdAt": "2026-11-13T10:44:50.960Z",
+        "totalSpent": 0,
+        "keyCount": 0
+      },
+      "8601285872": {
+        "id": 8601285872,
+        "username": "CYBERxANGSHU",
+        "firstName": "CYBERxANGSHU",
+        "tier": "normal",
+        "credit": 0,
+        "banned": false,
+        "resellerSince": null,
+        "createdAt": "2026-11-13T14:04:08.371Z",
         "totalSpent": 0,
         "keyCount": 0
       }
@@ -1973,8 +1985,8 @@
       "githubRepo": "mranshurx/pc5-bot",
       "githubPath": "data/state.json",
       "githubBranch": "main",
-      "githubLastSync": "2026-11-13T12:52:32.964Z",
-      "githubLastRev": 68,
+      "githubLastSync": "2026-11-13T14:03:43.532Z",
+      "githubLastRev": 84,
       "githubLastError": ""
     },
     "counters": {
