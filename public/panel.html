@@ -32,6 +32,7 @@
   .tag.rsl{background:rgba(16,185,129,.15);color:#34d399}.tag.norm{background:#1e1e26;color:#9a9aa4}
   .tag.banned{background:rgba(239,68,68,.15);color:#f87171}.tag.pend{background:rgba(245,158,11,.15);color:#f59e0b}
   .tag.ok{background:rgba(16,185,129,.15);color:#34d399}.tag.rej{background:rgba(239,68,68,.15);color:#f87171}
+  .tag.live{background:rgba(16,185,129,.15);color:#34d399}.tag.dead{background:rgba(239,68,68,.15);color:#f87171}
   .shot{width:54px;height:54px;object-fit:cover;border-radius:6px;border:1px solid var(--line);cursor:pointer;background:#0a0a0e}
   .key{font-size:11px;color:#dcdce2;word-break:break-all}
   #login{position:fixed;inset:0;background:#05050a;display:flex;align-items:center;justify-content:center;z-index:50}
@@ -86,7 +87,7 @@
       <div class="card"><h2>Pending Review</h2>
         <table><thead><tr><th>#</th><th>User</th><th>Type</th><th>Amount</th><th>Proof</th><th></th></tr></thead><tbody id="pending"></tbody></table>
       </div>
-      <div class="card"><h2>Users</h2>
+      <div class="card"><h2>Users <span id="liveTag" class="tag live">live</span></h2>
         <input id="search" placeholder="search id / username" style="margin-bottom:10px" />
         <table><thead><tr><th>ID</th><th>User</th><th>Tier</th><th>Credit</th><th>Keys</th><th></th></tr></thead><tbody id="users"></tbody></table>
       </div>
@@ -146,6 +147,7 @@
 
 <script>
 let S = null;
+let lastRev = -1;
 const $ = i => document.getElementById(i);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const inr = p => '₹' + (Math.round(Number(p) || 0) / 100);
@@ -161,7 +163,7 @@ async function api(p, b) {
 $('pwBtn').onclick = async () => { try { await api('/api/login', { password: $('pw').value }); $('login').style.display = 'none'; load(); } catch (e) { $('pwErr').textContent = e.message === 'unauth' ? 'wrong password' : e.message; $('pwErr').style.display = 'block'; } };
 $('pw').onkeydown = e => { if (e.key === 'Enter') $('pwBtn').click(); };
 $('logout').onclick = async () => { await api('/api/logout', {}); $('login').style.display = 'flex'; };
-$('refresh').onclick = load;
+$('refresh').onclick = () => load(true);
 $('backup').onclick = async () => {
   const r = await fetch('/api/backup', { headers: { 'X-Panel': '1' } });
   if (!r.ok) return toast('failed');
@@ -170,32 +172,32 @@ $('backup').onclick = async () => {
 $('restoreBtn').onclick = () => $('restoreFile').click();
 $('restoreFile').onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
-  try { await api('/api/restore', JSON.parse(await f.text())); toast('restored'); load(); } catch (x) { toast(x.message); }
+  try { await api('/api/restore', JSON.parse(await f.text())); toast('restored'); load(true); } catch (x) { toast(x.message); }
 };
 
 $('qrFile').onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
   if (f.size > 6 * 1024 * 1024) return toast('max 6MB');
   const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
-  try { await api('/api/qr', { dataUrl }); toast('qr saved'); load(); } catch (x) { toast(x.message); }
+  try { await api('/api/qr', { dataUrl }); toast('qr saved'); load(true); } catch (x) { toast(x.message); }
   e.target.value = '';
 };
 
 $('ghSave').onclick = async () => {
   try {
     await api('/api/github', { token: $('ghToken').value, repo: $('ghRepo').value, path: $('ghPath').value, branch: $('ghBranch').value, auto: $('ghAuto').checked });
-    $('ghToken').value = ''; toast('saved'); load();
+    $('ghToken').value = ''; toast('saved'); load(true);
   } catch (x) { toast(x.message); }
 };
 $('ghClear').onclick = async () => {
-  try { await api('/api/github', { clearToken: true }); toast('token cleared'); load(); } catch (x) { toast(x.message); }
+  try { await api('/api/github', { clearToken: true }); toast('token cleared'); load(true); } catch (x) { toast(x.message); }
 };
 $('ghPush').onclick = async () => {
-  try { const d = await api('/api/github/push', {}); toast('pushed rev ' + d.rev); load(); } catch (x) { toast(x.message); }
+  try { const d = await api('/api/github/push', {}); toast('pushed rev ' + d.rev); load(true); } catch (x) { toast(x.message); }
 };
 $('ghPull').onclick = async () => {
-  if (!confirm('Overwrite local data with the repo copy?')) return;
-  try { const d = await api('/api/github/pull', {}); toast('pulled imported=' + d.imported); load(); } catch (x) { toast(x.message); }
+  if (!confirm('Merge the repo copy into local data?')) return;
+  try { const d = await api('/api/github/pull', {}); toast('pulled imported=' + d.imported); load(true); } catch (x) { toast(x.message); }
 };
 $('ghAuto').onchange = async () => {
   try { await api('/api/github', { auto: $('ghAuto').checked }); toast('auto ' + ($('ghAuto').checked ? 'on' : 'off')); } catch (x) { toast(x.message); }
@@ -209,12 +211,16 @@ function draw() {
   const g = S.github;
   let banner = '';
   if (st.available === 0 && st.users > 0) banner += `<div class="bad">Stock is empty but ${st.users} user(s) exist — the bot will answer "Out of stock". Add keys below.</div>`;
-  if (!g.ready) banner += `<div class="banner">Repo sync is not configured — data lives only on this instance's disk and will be lost on restart. Fill in the Repo Sync card.</div>`;
+  if (!g.ready) banner += `<div class="banner">Repo sync is not configured — users and proofs created on the bot side cannot reach this panel reliably, and data dies on restart.</div>`;
   else if (g.lastError) banner += `<div class="banner">Last sync failed: ${esc(g.lastError)}</div>`;
   else if (!g.auto) banner += `<div class="banner">Auto-sync is OFF. Changes will not reach the repo.</div>`;
   $('syncBanner').innerHTML = banner;
 
-  $('stockTotal').innerHTML = `Available: <b class="${S.stockTotal ? 'good' : 'err'}">${S.stockTotal}</b> · state rev ${S.stats.rev} · file ${esc(S.disk.file)} (${S.disk.bytes} B)${S.disk.lastReload ? ' · reloaded ' + esc(new Date(S.disk.lastReload).toLocaleTimeString()) : ''}`;
+  const live = S.live || {};
+  $('liveTag').className = 'tag ' + (live.sync ? (Date.now() - (live.lastPullOk || 0) < 30000 ? 'live' : 'dead') : 'dead');
+  $('liveTag').textContent = live.sync ? (Date.now() - (live.lastPullOk || 0) < 30000 ? 'live' : 'stalled') : 'offline';
+
+  $('stockTotal').innerHTML = `Available: <b class="${S.stockTotal ? 'good' : 'err'}">${S.stockTotal}</b> · state rev ${S.stats.rev} · file ${esc(S.disk.file)} (${S.disk.bytes} B)${S.disk.lastReload ? ' · disk reload ' + esc(new Date(S.disk.lastReload).toLocaleTimeString()) : ''}`;
 
   $('stockSummary').innerHTML = Object.keys(S.stockSummary).map(id => {
     const s = S.stockSummary[id] || { single: 0, unlimited: 0 };
@@ -230,7 +236,7 @@ function draw() {
 
   $('pending').innerHTML = S.orders.filter(o => o.status === 'pending_review').map(o => `
     <tr><td>${esc(o.id)}</td><td>${esc(o.userId)}</td><td><span class="tag ${o.type === 'reseller' ? 'rsl' : 'norm'}">${esc(o.type)}</span></td><td>${inr(o.amount)}</td>
-    <td>${o.screenshotFileId ? `<img class="shot" src="/api/shot/${esc(o.id)}" data-shot="${esc(o.id)}" data-fid="${esc(o.screenshotFileId)}" onerror="this.replaceWith(Object.assign(document.createElement('button'),{className:'ghost',textContent:'view',onclick:()=>openFid('${esc(o.screenshotFileId)}')}))" />` : '—'}</td>
+    <td>${(o.screenshotFileId || o.screenshotLocal) ? `<img class="shot" src="/api/shot/${esc(o.id)}?t=${Date.now()}" data-shot="${esc(o.id)}" onerror="this.replaceWith(Object.assign(document.createElement('button'),{className:'ghost',textContent:'view',onclick:()=>openOrder('${esc(o.id)}')}))" />` : '—'}</td>
     <td><div class="row"><button class="ok" data-ok="${esc(o.id)}">✓</button><button class="warn" data-no="${esc(o.id)}">✕</button></div></td></tr>`).join('')
     || '<tr><td colspan="6" class="muted">nothing</td></tr>';
 
@@ -239,7 +245,7 @@ function draw() {
     <tr><td>${esc(u.id)}</td><td>${esc(u.firstName)}${u.username ? ' <span class="muted small">@' + esc(u.username) + '</span>' : ''}${u.banned ? ' <span class="tag banned">ban</span>' : ''}</td>
     <td><span class="tag ${u.tier === 'reseller' ? 'rsl' : 'norm'}">${esc(u.tier)}</span></td><td>${inr(u.credit)}</td><td>${esc(u.keyCount)}</td>
     <td><div class="row"><button class="ghost" data-credit="${esc(u.id)}">₹</button><button class="ghost" data-tier="${esc(u.id)}">${u.tier === 'reseller' ? 'un-rsl' : 'rsl'}</button><button class="ghost" data-ban="${esc(u.id)}">${u.banned ? 'unban' : 'ban'}</button></div></td></tr>`).join('')
-    || '<tr><td colspan="6" class="muted">none</td></tr>';
+    || '<tr><td colspan="6" class="muted">none yet</td></tr>';
 
   $('orders').innerHTML = S.orders.slice(0, 50).map(o => `
     <tr><td>${esc(o.id)}</td><td>${esc(o.userId)}</td><td>${esc(o.type)}</td><td>${inr(o.amount)}</td>
@@ -290,23 +296,45 @@ function draw() {
   else $('ghStatus').textContent = 'configured, not synced yet';
 }
 
-function openFid(fid) {
-  $('modalImg').src = '/api/shotfile/' + encodeURIComponent(fid);
+function openOrder(id) {
+  $('modalImg').src = '/api/shot/' + encodeURIComponent(id);
   $('modal').style.display = 'flex';
 }
 
-async function load() { try { S = await api('/api/state'); draw(); } catch (e) { if (e.message !== 'unauth') toast(e.message); } }
+async function load(force) {
+  try {
+    const d = await api('/api/state');
+    if (!force && d.rev === lastRev && S) { S.stats = d.stats; S.stockTotal = d.stockTotal; S.live = d.live; return; }
+    lastRev = d.rev;
+    S = d; draw();
+  } catch (e) { if (e.message !== 'unauth') toast(e.message); }
+}
+
+/* fast poll: only the cheap fields, full redraw when rev moves */
+async function poll() {
+  if (!S) return;
+  try {
+    const d = await api('/api/state?lite=1');
+    S.live = d.live; S.stats = d.stats; S.stockTotal = d.stockTotal;
+    if (d.rev !== lastRev) return void load();
+    const live = S.live || {};
+    $('liveTag').className = 'tag ' + (live.sync ? (Date.now() - (live.lastPullOk || 0) < 30000 ? 'live' : 'dead') : 'dead');
+    $('liveTag').textContent = live.sync ? (Date.now() - (live.lastPullOk || 0) < 30000 ? 'live' : 'stalled') : 'offline';
+    $('stats').innerHTML = [['Users', S.stats.users], ['Resellers', S.stats.resellers], ['Credit', inr(S.stats.creditHeld)], ['In stock', S.stats.available], ['Sold', S.stats.sold], ['Pending', S.stats.pending], ['Rev', S.stats.rev], ['Unsynced', S.stats.dirty]]
+      .map(([k, v]) => `<div class="stat"><b>${esc(v)}</b><i>${esc(k)}</i></div>`).join('');
+  } catch {}
+}
 
 document.addEventListener('click', async e => {
   const t = e.target;
   try {
     if (t.dataset.shot) { $('modalImg').src = '/api/shot/' + t.dataset.shot; $('modal').style.display = 'flex'; }
-    if (t.dataset.ok) { await api(`/api/order/${t.dataset.ok}/approve`, {}); toast('approved'); load(); }
-    if (t.dataset.no) { const reason = prompt('Reason') ?? ''; await api(`/api/order/${t.dataset.no}/reject`, { reason }); load(); }
-    if (t.dataset.del) { await api('/api/stock/remove', { keys: [t.dataset.del] }); load(); }
-    if (t.dataset.credit) { const v = prompt('Credit ₹ (negative to deduct)'); if (v !== null) { await api(`/api/user/${t.dataset.credit}`, { creditDelta: Number(v) }); load(); } }
-    if (t.dataset.tier) { const u = S.users.find(x => String(x.id) === t.dataset.tier); await api(`/api/user/${t.dataset.tier}`, { tier: u.tier === 'reseller' ? 'normal' : 'reseller' }); load(); }
-    if (t.dataset.ban) { const u = S.users.find(x => String(x.id) === t.dataset.ban); await api(`/api/user/${t.dataset.ban}`, { banned: !u.banned }); load(); }
+    if (t.dataset.ok) { await api(`/api/order/${t.dataset.ok}/approve`, {}); toast('approved'); load(true); }
+    if (t.dataset.no) { const reason = prompt('Reason') ?? ''; await api(`/api/order/${t.dataset.no}/reject`, { reason }); load(true); }
+    if (t.dataset.del) { await api('/api/stock/remove', { keys: [t.dataset.del] }); load(true); }
+    if (t.dataset.credit) { const v = prompt('Credit ₹ (negative to deduct)'); if (v !== null) { await api(`/api/user/${t.dataset.credit}`, { creditDelta: Number(v) }); load(true); } }
+    if (t.dataset.tier) { const u = S.users.find(x => String(x.id) === t.dataset.tier); await api(`/api/user/${t.dataset.tier}`, { tier: u.tier === 'reseller' ? 'normal' : 'reseller' }); load(true); }
+    if (t.dataset.ban) { const u = S.users.find(x => String(x.id) === t.dataset.ban); await api(`/api/user/${t.dataset.ban}`, { banned: !u.banned }); load(true); }
   } catch (x) { toast(x.message); }
 });
 
@@ -318,28 +346,29 @@ $('addBtn').onclick = async () => {
   try {
     const d = await api('/api/stock/add', { planId: $('addPlan').value, deviceLimit: $('addDev').value, text: $('addKeys').value });
     toast(`+${d.added}, ${d.dupes} dupes → ${d.total} in stock`);
-    $('addKeys').value = ''; load();
+    $('addKeys').value = ''; load(true);
   } catch (x) { toast(x.message); }
 };
 $('genBtn').onclick = async () => {
-  try { const d = await api('/api/stock/gen', { planId: $('addPlan').value, deviceLimit: $('addDev').value, count: Number($('genCount').value) }); toast('+' + d.added); load(); }
+  try { const d = await api('/api/stock/gen', { planId: $('addPlan').value, deviceLimit: $('addDev').value, count: Number($('genCount').value) }); toast('+' + d.added); load(true); }
   catch (x) { toast(x.message); }
 };
 $('saveSettings').onclick = async () => {
   await api('/api/settings', { upiId: $('upiId').value, upiName: $('upiName').value, botMaintenance: $('maint').checked, maintenanceMsg: $('maintMsg').value, minTopup: Number($('minTopup').value), maxTopup: Number($('maxTopup').value) });
-  toast('saved'); load();
+  toast('saved'); load(true);
 };
 $('savePricing').onclick = async () => {
   const plans = S.pricing.plans.map(p => ({ id: p.id, hours: p.hours, label: p.label, retail: Number(document.querySelector(`[data-pr="${p.id}"]`).value), reseller: Number(document.querySelector(`[data-pw="${p.id}"]`).value), on: document.querySelector(`[data-on="${p.id}"]`).checked }));
   await api('/api/pricing', { plans, resellerFee: Number($('rslFee').value), unlimitedMultiplier: Number($('mult').value) });
-  toast('saved'); load();
+  toast('saved'); load(true);
 };
 $('gkBtn').onclick = async () => {
-  try { const d = await api('/api/genkey', { userId: $('gkUser').value.trim(), planId: $('gkPlan').value, deviceLimit: $('gkDev').value }); toast('sent ' + d.key); load(); }
+  try { const d = await api('/api/genkey', { userId: $('gkUser').value.trim(), planId: $('gkPlan').value, deviceLimit: $('gkDev').value }); toast('sent ' + d.key); load(true); }
   catch (x) { toast(x.message); }
 };
-load().catch(() => {});
-setInterval(() => { if (S) load().catch(() => {}); }, 15000);
+load(true).catch(() => {});
+setInterval(poll, 4000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) load().catch(() => {}); });
 </script>
 </body>
 </html>
