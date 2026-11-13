@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 119,
-  "savedAt": "2026-11-13T14:48:05.611Z",
+  "rev": 121,
+  "savedAt": "2026-11-13T14:48:26.989Z",
   "reason": "auto",
   "state": {
-    "rev": 119,
+    "rev": 121,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -2061,8 +2061,8 @@
       "githubRepo": "mranshurx/pc5-bot",
       "githubPath": "data/state.json",
       "githubBranch": "main",
-      "githubLastSync": "2026-11-13T14:31:32.652Z",
-      "githubLastRev": 105,
+      "githubLastSync": "2026-11-13T14:48:08.604Z",
+      "githubLastRev": 119,
       "githubLastError": ""
     },
     "counters": {
