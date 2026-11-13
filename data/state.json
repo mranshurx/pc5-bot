@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 131,
-  "savedAt": "2026-11-13T14:58:38.095Z",
+  "rev": 133,
+  "savedAt": "2026-11-13T15:17:26.751Z",
   "reason": "auto",
   "state": {
-    "rev": 131,
+    "rev": 133,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -1997,7 +1997,7 @@
           "hours": 6,
           "label": "6 Hours",
           "retail": 1500,
-          "reseller": 600,
+          "reseller": 500,
           "on": true
         },
         {
@@ -2005,7 +2005,7 @@
           "hours": 12,
           "label": "12 Hours",
           "retail": 2000,
-          "reseller": 800,
+          "reseller": 700,
           "on": true
         },
         {
@@ -2013,7 +2013,7 @@
           "hours": 24,
           "label": "1 Day",
           "retail": 3200,
-          "reseller": 1100,
+          "reseller": 1000,
           "on": true
         },
         {
@@ -2021,7 +2021,7 @@
           "hours": 72,
           "label": "3 Days",
           "retail": 4300,
-          "reseller": 1800,
+          "reseller": 1700,
           "on": true
         },
         {
@@ -2029,7 +2029,7 @@
           "hours": 168,
           "label": "7 Days",
           "retail": 7500,
-          "reseller": 3300,
+          "reseller": 3500,
           "on": true
         },
         {
@@ -2045,7 +2045,7 @@
           "hours": 720,
           "label": "30 Days",
           "retail": 21000,
-          "reseller": 11000,
+          "reseller": 10000,
           "on": true
         }
       ]
