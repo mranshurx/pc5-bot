@@ -23,23 +23,21 @@ const {
   GITHUB_REPO = '',
   GITHUB_PATH = 'data/state.json',
   GITHUB_BRANCH = 'main',
-  PUBLIC_URL = '',
   RENDER_EXTERNAL_URL = '',
   SESSION_SECRET = crypto.randomBytes(32).toString('hex'),
 } = process.env;
+
+const PUBLIC_URL = String(process.env.PUBLIC_URL || '').replace(/\/+$/, '');
 
 if (!BOT_TOKEN) {
   console.error('BOT_TOKEN missing');
   process.exit(1);
 }
 
-const ADMINS = ADMIN_IDS.split(',')
-  .map((s) => s.trim())
-  .filter(Boolean)
-  .map(Number);
+const ADMINS = ADMIN_IDS.split(',').map((s) => s.trim()).filter(Boolean).map(Number);
 
 const STATE_FILE = path.join(DATA_DIR, 'state.json');
-const LEGACY_STOCK = path.join(DATA_DIR, '..', 'stock.json');
+const LEGACY_STOCK = path.join(process.cwd(), 'stock.json');
 const SHOT_DIR = path.join(DATA_DIR, 'screens');
 const LOG_CAP = 500;
 
@@ -51,6 +49,7 @@ function blank() {
   return {
     rev: 0,
     updatedAt: Date.now(),
+    pending: {},
     settings: {
       maintenance: false,
       banner: 'Welcome to PC5 ANDROID.',
@@ -83,12 +82,20 @@ function normalize(s) {
   const out = {
     rev: Number(s.rev) || 0,
     updatedAt: Number(s.updatedAt) || Date.now(),
+    pending: s.pending && typeof s.pending === 'object' ? s.pending : {},
     settings: Object.assign(b.settings, s.settings || {}),
     users: s.users && typeof s.users === 'object' ? s.users : {},
     orders: Array.isArray(s.orders) ? s.orders : [],
     stock: s.stock && typeof s.stock === 'object' ? s.stock : {},
     log: Array.isArray(s.log) ? s.log.slice(-LOG_CAP) : [],
   };
+
+  if (!Array.isArray(out.settings.plans) || !out.settings.plans.length) {
+    out.settings.plans = b.settings.plans;
+  }
+  if (!Array.isArray(out.settings.tiers) || !out.settings.tiers.length) {
+    out.settings.tiers = b.settings.tiers;
+  }
 
   for (const p of out.settings.plans) {
     if (!Array.isArray(out.stock[p.id])) out.stock[p.id] = [];
@@ -131,6 +138,7 @@ function log(kind, text) {
 function mutate(fn, opts = {}) {
   const run = chain.then(async () => {
     const draft = JSON.parse(JSON.stringify(state));
+    if (!draft.pending) draft.pending = {};
     const result = await fn(draft);
     draft.rev += 1;
     draft.updatedAt = Date.now();
@@ -166,8 +174,7 @@ function ensureUser(src) {
 
 function priceFor(s, plan, tierIndex) {
   const tier = s.settings.tiers[tierIndex] || s.settings.tiers[0];
-  const base = plan.price * (tier ? tier.mult : 1);
-  return Math.round(base);
+  return Math.round(plan.price * (tier ? tier.mult : 1));
 }
 
 function claimKey(draft, planId) {
@@ -179,41 +186,32 @@ function claimKey(draft, planId) {
   return list[idx].key;
 }
 
-function shortId(prefix) {
-  return prefix + crypto.randomBytes(4).toString('hex').toUpperCase();
-}
+const shortId = (p) => p + crypto.randomBytes(4).toString('hex').toUpperCase();
 
 /* -------------------------------------------------------------- github sync */
 
-function ghHeaders() {
-  return {
-    Authorization: `Bearer ${GITHUB_TOKEN}`,
-    Accept: 'application/vnd.github+json',
-    'X-GitHub-Api-Version': '2022-11-28',
-    'Content-Type': 'application/json',
-    'User-Agent': 'pc5-bot',
-  };
-}
+const ghHeaders = () => ({
+  Authorization: `Bearer ${GITHUB_TOKEN}`,
+  Accept: 'application/vnd.github+json',
+  'X-GitHub-Api-Version': '2022-11-28',
+  'Content-Type': 'application/json',
+  'User-Agent': 'pc5-bot',
+});
 
 const ghUrl = () =>
-  `https://api.github.com/repos/${GITHUB_REPO}/contents/${encodeURIComponent(
-    GITHUB_PATH
-  )}`;
+  `https://api.github.com/repos/${GITHUB_REPO}/contents/${encodeURIComponent(GITHUB_PATH)}`;
 
 async function ghSha() {
-  const r = await fetch(`${ghUrl()}?ref=${GITHUB_BRANCH}`, {
-    headers: ghHeaders(),
-  });
+  const r = await fetch(`${ghUrl()}?ref=${GITHUB_BRANCH}`, { headers: ghHeaders() });
   if (r.status === 404) return null;
   if (!r.ok) throw new Error('sha ' + r.status);
-  const j = await r.json();
-  return j.sha;
+  return (await r.json()).sha;
 }
 
 function snapshot() {
-  const copy = JSON.parse(JSON.stringify(state));
-  if (copy.settings.github) delete copy.settings.github.token;
-  return copy;
+  const c = JSON.parse(JSON.stringify(state));
+  if (c.settings.github) delete c.settings.github.token;
+  return c;
 }
 
 async function pushNow() {
@@ -229,11 +227,7 @@ async function pushNow() {
           branch: GITHUB_BRANCH,
         };
         if (sha) body.sha = sha;
-        const r = await fetch(ghUrl(), {
-          method: 'PUT',
-          headers: ghHeaders(),
-          body: JSON.stringify(body),
-        });
+        const r = await fetch(ghUrl(), { method: 'PUT', headers: ghHeaders(), body: JSON.stringify(body) });
         if (r.ok) return true;
         if (r.status !== 409 && r.status !== 422) throw new Error('push ' + r.status);
       } catch (e) {
@@ -266,8 +260,7 @@ async function pullRemote() {
     if (r.status === 404) return null;
     if (!r.ok) throw new Error('pull ' + r.status);
     const j = await r.json();
-    const raw = Buffer.from(j.content, 'base64').toString('utf8');
-    return JSON.parse(raw);
+    return JSON.parse(Buffer.from(j.content, 'base64').toString('utf8'));
   } catch (e) {
     console.error('pull failed:', e.message);
     return null;
@@ -297,25 +290,33 @@ bot.use(async (ctx, next) => {
 const menu = () =>
   Markup.inlineKeyboard([
     [Markup.button.callback('Buy', 'buy')],
-    [
-      Markup.button.callback('Balance', 'balance'),
-      Markup.button.callback('My Keys', 'mykeys'),
-    ],
+    [Markup.button.callback('Balance', 'balance'), Markup.button.callback('My Keys', 'mykeys')],
     [Markup.button.callback('Top Up', 'topup')],
     [Markup.button.callback('Become Reseller', 'reseller')],
   ]);
 
-const HOME = (name) =>
-  `Hi ${name}.\n\n${state.settings.banner}\n\nUse the buttons below.`;
+const HOME = (name) => `Hi ${name}.\n\n${state.settings.banner}\n\nUse the buttons below.`;
 
 bot.start(async (ctx) => {
-  const u = ensureUser(ctx.from);
-  await mutate((d) => {
-    const target = d.users[String(ctx.from.id)];
-    if (target) target.lastSeen = Date.now();
-  }, { quiet: true });
-  await ctx.reply(HOME(u.name), menu());
-  broadcast();
+  const id = String(ctx.from.id);
+  const user = await mutate((d) => {
+    const u =
+      d.users[id] ||
+      (d.users[id] = {
+        id,
+        name: [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ') || 'User',
+        username: ctx.from.username || '',
+        balance: 0,
+        reseller: false,
+        banned: false,
+        joined: Date.now(),
+        lastSeen: Date.now(),
+      });
+    u.lastSeen = Date.now();
+    if (ctx.from.username) u.username = ctx.from.username;
+    return u;
+  });
+  await ctx.reply(HOME(user.name), menu());
 });
 
 bot.action('home', async (ctx) => {
@@ -327,38 +328,24 @@ bot.action('home', async (ctx) => {
 bot.action('balance', async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
   const u = state.users[String(ctx.from.id)];
-  await ctx.editMessageText(
-    `Balance: ₹${((u?.balance || 0) / 100).toFixed(2)}`,
-    Markup.inlineKeyboard([[Markup.button.callback('Back', 'home')]])
-  );
+  await ctx
+    .editMessageText(`Balance: ₹${((u?.balance || 0) / 100).toFixed(2)}`, Markup.inlineKeyboard([[Markup.button.callback('Back', 'home')]]))
+    .catch(() => {});
 });
 
 bot.action('mykeys', async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
-  const mine = state.orders.filter(
-    (o) => o.userId === String(ctx.from.id) && o.key
-  );
-  const text = mine.length
-    ? mine
-        .slice(-15)
-        .map((o) => `${o.planName}\n\`${o.key}\``)
-        .join('\n\n')
-    : 'No keys yet.';
+  const mine = state.orders.filter((o) => o.userId === String(ctx.from.id) && o.key);
+  const text = mine.length ? mine.slice(-15).map((o) => `${o.planName}\n\`${o.key}\``).join('\n\n') : 'No keys yet.';
   await ctx
-    .editMessageText(text, {
-      parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard([[Markup.button.callback('Back', 'home')]]),
-    })
+    .editMessageText(text, { parse_mode: 'Markdown', ...Markup.inlineKeyboard([[Markup.button.callback('Back', 'home')]]) })
     .catch(() => {});
 });
 
 bot.action('buy', async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
   const rows = state.settings.plans.map((p) => [
-    Markup.button.callback(
-      `${p.name} — ₹${(p.price / 100).toFixed(0)}`,
-      `plan:${p.id}`
-    ),
+    Markup.button.callback(`${p.name} — ₹${(p.price / 100).toFixed(0)}`, `plan:${p.id}`),
   ]);
   rows.push([Markup.button.callback('Back', 'home')]);
   await ctx.editMessageText('Choose a plan:', Markup.inlineKeyboard(rows)).catch(() => {});
@@ -369,10 +356,7 @@ bot.action(/^plan:(.+)$/, async (ctx) => {
   const plan = state.settings.plans.find((p) => p.id === ctx.match[1]);
   if (!plan) return;
   const rows = state.settings.tiers.map((t, i) => [
-    Markup.button.callback(
-      `${t.label} — ₹${(priceFor(state, plan, i) / 100).toFixed(0)}`,
-      `tier:${plan.id}:${i}`
-    ),
+    Markup.button.callback(`${t.label} — ₹${(priceFor(state, plan, i) / 100).toFixed(0)}`, `tier:${plan.id}:${i}`),
   ]);
   rows.push([Markup.button.callback('Back', 'buy')]);
   await ctx.editMessageText(`Plan: ${plan.name}\nChoose devices:`, Markup.inlineKeyboard(rows)).catch(() => {});
@@ -382,18 +366,15 @@ bot.action(/^tier:([^:]+):(\d+)$/, async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
   const plan = state.settings.plans.find((p) => p.id === ctx.match[1]);
   if (!plan) return;
-  const tierIndex = Number(ctx.match[2]);
-  const price = priceFor(state, plan, tierIndex);
-  const tier = state.settings.tiers[tierIndex];
+  const ti = Number(ctx.match[2]);
+  const price = priceFor(state, plan, ti);
+  const tier = state.settings.tiers[ti];
   const u = state.users[String(ctx.from.id)];
-
   await ctx
     .editMessageText(
-      `Plan: ${plan.name}\nDevices: ${tier.label}\nPrice: ₹${(price / 100).toFixed(2)}\nBalance: ₹${(
-        (u?.balance || 0) / 100
-      ).toFixed(2)}`,
+      `Plan: ${plan.name}\nDevices: ${tier.label}\nPrice: ₹${(price / 100).toFixed(2)}\nBalance: ₹${((u?.balance || 0) / 100).toFixed(2)}`,
       Markup.inlineKeyboard([
-        [Markup.button.callback('Confirm', `confirm:${plan.id}:${tierIndex}`)],
+        [Markup.button.callback('Confirm', `confirm:${plan.id}:${ti}`)],
         [Markup.button.callback('Back', `plan:${plan.id}`)],
       ])
     )
@@ -403,13 +384,13 @@ bot.action(/^tier:([^:]+):(\d+)$/, async (ctx) => {
 bot.action(/^confirm:([^:]+):(\d+)$/, async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
   const planId = ctx.match[1];
-  const tierIndex = Number(ctx.match[2]);
+  const ti = Number(ctx.match[2]);
   const uid = String(ctx.from.id);
 
   const res = await mutate((d) => {
     const plan = d.settings.plans.find((p) => p.id === planId);
     if (!plan) return { err: 'Plan gone.' };
-    const price = priceFor(d, plan, tierIndex);
+    const price = priceFor(d, plan, ti);
     const user = d.users[uid];
     if (!user) return { err: 'Unknown user.' };
     if (user.balance < price) return { err: `Need ₹${((price - user.balance) / 100).toFixed(2)} more.` };
@@ -422,7 +403,7 @@ bot.action(/^confirm:([^:]+):(\d+)$/, async (ctx) => {
       userId: uid,
       planId,
       planName: plan.name,
-      devices: (d.settings.tiers[tierIndex] || {}).label || '1 Device',
+      devices: (d.settings.tiers[ti] || {}).label || '1 Device',
       amount: price,
       status: 'paid',
       key,
@@ -435,30 +416,22 @@ bot.action(/^confirm:([^:]+):(\d+)$/, async (ctx) => {
 
   if (res.err === 'OUT_OF_STOCK') {
     return ctx
-      .editMessageText(
-        'Out of stock for this plan. Try another plan or check back soon.',
-        Markup.inlineKeyboard([[Markup.button.callback('Back', 'buy')]])
-      )
+      .editMessageText('Out of stock for this plan.', Markup.inlineKeyboard([[Markup.button.callback('Back', 'buy')]]))
       .catch(() => {});
   }
   if (res.err) {
-    return ctx
-      .editMessageText(res.err, Markup.inlineKeyboard([[Markup.button.callback('Back', 'buy')]]))
-      .catch(() => {});
+    return ctx.editMessageText(res.err, Markup.inlineKeyboard([[Markup.button.callback('Back', 'buy')]])).catch(() => {});
   }
 
   await ctx
-    .editMessageText(
-      `Purchase complete.\n\nPlan: ${res.order.planName}\nKey:\n\`${res.order.key}\``,
-      {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([[Markup.button.callback('Menu', 'home')]]),
-      }
-    )
+    .editMessageText(`Purchase complete.\n\nPlan: ${res.order.planName}\nKey:\n\`${res.order.key}\``, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([[Markup.button.callback('Menu', 'home')]]),
+    })
     .catch(() => {});
 });
 
-/* --------------------------------------------------------------- top up */
+/* ------------------------------------------------------------------ top up */
 
 const PRESETS = [5000, 10000, 25000, 50000];
 
@@ -466,45 +439,30 @@ bot.action('topup', async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
   const rows = [];
   for (let i = 0; i < PRESETS.length; i += 2) {
-    rows.push(
-      PRESETS.slice(i, i + 2).map((p) =>
-        Markup.button.callback(`₹${p / 100}`, `amt:${p}`)
-      )
-    );
+    rows.push(PRESETS.slice(i, i + 2).map((p) => Markup.button.callback(`₹${p / 100}`, `amt:${p}`)));
   }
   rows.push([Markup.button.callback('Custom', 'amt:custom')]);
   rows.push([Markup.button.callback('Back', 'home')]);
   await ctx.editMessageText('Choose top-up amount:', Markup.inlineKeyboard(rows)).catch(() => {});
 });
 
-async function sendPayInstructions(ctx, amount) {
+async function sendPay(ctx, amount) {
   const id = shortId('T-');
   await mutate((d) => {
-    d.orders.push({
-      id,
-      userId: String(ctx.from.id),
-      amount,
-      status: 'awaiting_payment',
-      createdAt: Date.now(),
-    });
-    if (!d.pending) d.pending = {};
+    d.orders.push({ id, userId: String(ctx.from.id), amount, status: 'awaiting_payment', createdAt: Date.now() });
     d.pending[String(ctx.from.id)] = id;
   });
 
-  const upi = `upi://pay?pa=${encodeURIComponent(
-    state.settings.upiId
-  )}&pn=${encodeURIComponent(state.settings.upiName)}&am=${(amount / 100).toFixed(
-    2
-  )}&cu=INR`;
+  const upi = `upi://pay?pa=${encodeURIComponent(state.settings.upiId)}&pn=${encodeURIComponent(
+    state.settings.upiName
+  )}&am=${(amount / 100).toFixed(2)}&cu=INR`;
 
-  const staticQr = path.join(__dirname, 'public', 'qr.jpg');
   const caption =
-    `Pay ₹${(amount / 100).toFixed(2)} to\n${state.settings.upiId}\n(${state.settings.upiName})\n\n` +
-    `Order ${id}\nThen send the payment screenshot here.`;
-
+    `Pay ₹${(amount / 100).toFixed(2)} to\n${state.settings.upiId}\n(${state.settings.upiName})\n\nOrder ${id}\nThen send the payment screenshot here.`;
   const kb = Markup.inlineKeyboard([[Markup.button.callback('Cancel', 'home')]]);
 
   try {
+    const staticQr = path.join(__dirname, 'public', 'qr.jpg');
     if (fs.existsSync(staticQr)) {
       await ctx.replyWithPhoto({ source: staticQr }, { caption, ...kb });
     } else {
@@ -518,15 +476,14 @@ async function sendPayInstructions(ctx, amount) {
 
 bot.action(/^amt:(\d+)$/, async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
-  await sendPayInstructions(ctx, Number(ctx.match[1]));
+  await sendPay(ctx, Number(ctx.match[1]));
 });
 
 bot.action('amt:custom', async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
   await mutate((d) => {
-    if (!d.pending) d.pending = {};
     d.pending[String(ctx.from.id)] = 'CUSTOM';
-  });
+  }, { quiet: true });
   await ctx
     .editMessageText('Send the amount in rupees (e.g. 150):', Markup.inlineKeyboard([[Markup.button.callback('Cancel', 'home')]]))
     .catch(() => {});
@@ -534,43 +491,36 @@ bot.action('amt:custom', async (ctx) => {
 
 bot.on('text', async (ctx, next) => {
   const uid = String(ctx.from.id);
-  const pending = state.pending?.[uid];
-  if (pending !== 'CUSTOM') return next();
+  if (state.pending?.[uid] !== 'CUSTOM') return next();
 
   const rupees = Number(ctx.message.text.replace(/[^\d.]/g, ''));
   if (!rupees || rupees < 1) return ctx.reply('Send a valid amount in rupees.');
 
   await mutate((d) => {
-    delete d.pending[uid];
+    if (d.pending) delete d.pending[uid];
   }, { quiet: true });
-  await sendPayInstructions(ctx, Math.round(rupees * 100));
+  await sendPay(ctx, Math.round(rupees * 100));
 });
 
-/* ------------------------------------------------------------ screenshot */
+/* -------------------------------------------------------------- screenshot */
 
 bot.on('photo', async (ctx) => {
   const uid = String(ctx.from.id);
 
   const orderId =
-    state.pending?.[uid] ||
-    state.orders
-      .filter((o) => o.userId === uid && o.status === 'awaiting_payment')
-      .slice(-1)[0]?.id;
+    (state.pending?.[uid] && state.pending[uid] !== 'CUSTOM' ? state.pending[uid] : null) ||
+    state.orders.filter((o) => o.userId === uid && o.status === 'awaiting_payment').slice(-1)[0]?.id;
 
-  if (!orderId || orderId === 'CUSTOM') {
-    return ctx.reply('No open top-up. Tap Top Up first.');
-  }
+  if (!orderId) return ctx.reply('No open top-up. Tap Top Up first.');
 
   const photo = ctx.message.photo[ctx.message.photo.length - 1];
-  let file = null;
+  const file = `${orderId}.jpg`;
 
   try {
     const link = await ctx.telegram.getFileLink(photo.file_id);
     const res = await fetch(link.href);
-    const buf = Buffer.from(await res.arrayBuffer());
-    file = `${orderId}.jpg`;
-    fs.writeFileSync(path.join(SHOT_DIR, file), buf);
-  } catch (e) {
+    fs.writeFileSync(path.join(SHOT_DIR, file), Buffer.from(await res.arrayBuffer()));
+  } catch {
     return ctx.reply('Could not download the screenshot, send it again.');
   }
 
@@ -602,10 +552,7 @@ bot.on('photo', async (ctx) => {
         {
           caption,
           ...Markup.inlineKeyboard([
-            [
-              Markup.button.callback('Approve', `apv:${updated.id}`),
-              Markup.button.callback('Reject', `rej:${updated.id}`),
-            ],
+            [Markup.button.callback('Approve', `apv:${updated.id}`), Markup.button.callback('Reject', `rej:${updated.id}`)],
           ]),
         }
       );
@@ -615,27 +562,20 @@ bot.on('photo', async (ctx) => {
   }
 });
 
-/* -------------------------------------------------------------- reseller */
+/* ---------------------------------------------------------------- reseller */
 
 bot.action('reseller', async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
   const u = state.users[String(ctx.from.id)];
   if (u?.reseller) {
     return ctx
-      .editMessageText(
-        `You are a reseller. Discount: ${state.settings.resellerDiscount}%.`,
-        Markup.inlineKeyboard([[Markup.button.callback('Back', 'home')]])
-      )
+      .editMessageText(`You are a reseller. Discount: ${state.settings.resellerDiscount}%.`, Markup.inlineKeyboard([[Markup.button.callback('Back', 'home')]]))
       .catch(() => {});
   }
-  const fee = state.settings.resellerFee;
   await ctx
     .editMessageText(
-      `Reseller fee: ₹${(fee / 100).toFixed(2)}\nBalance: ₹${((u?.balance || 0) / 100).toFixed(2)}`,
-      Markup.inlineKeyboard([
-        [Markup.button.callback('Pay from balance', 'resbuy')],
-        [Markup.button.callback('Back', 'home')],
-      ])
+      `Reseller fee: ₹${(state.settings.resellerFee / 100).toFixed(2)}\nBalance: ₹${((u?.balance || 0) / 100).toFixed(2)}`,
+      Markup.inlineKeyboard([[Markup.button.callback('Pay from balance', 'resbuy')], [Markup.button.callback('Back', 'home')]])
     )
     .catch(() => {});
 });
@@ -655,58 +595,46 @@ bot.action('resbuy', async (ctx) => {
     return null;
   });
   await ctx
-    .editMessageText(
-      res || `You are now a reseller. ${state.settings.resellerDiscount}% off all plans.`,
-      Markup.inlineKeyboard([[Markup.button.callback('Menu', 'home')]])
-    )
+    .editMessageText(res || `You are now a reseller. ${state.settings.resellerDiscount}% off all plans.`, Markup.inlineKeyboard([[Markup.button.callback('Menu', 'home')]]))
     .catch(() => {});
 });
 
-/* ------------------------------------------------------- admin commands */
+/* ---------------------------------------------------------- admin commands */
 
-function isAdmin(ctx) {
-  return ADMINS.includes(ctx.from.id);
-}
+const isAdmin = (ctx) => ADMINS.includes(ctx.from.id);
 
-bot.command('panel', (ctx) =>
-  isAdmin(ctx) ? ctx.reply(PUBLIC_URL ? `${PUBLIC_URL}/panel` : 'No PUBLIC_URL set.') : null
-);
+bot.command('panel', (ctx) => isAdmin(ctx) && ctx.reply(PUBLIC_URL ? `${PUBLIC_URL}/panel` : 'No PUBLIC_URL set.'));
 
 bot.command('stats', async (ctx) => {
   if (!isAdmin(ctx)) return;
-  const users = Object.keys(state.users).length;
-  const pending = state.orders.filter((o) => o.status === 'pending_review').length;
-  const sold = state.orders.filter((o) => o.status === 'paid').length;
-  const revenue = state.orders
-    .filter((o) => o.status === 'paid' || o.status === 'approved')
-    .reduce((a, o) => a + (o.amount || 0), 0);
+  const revenue = state.orders.filter((o) => o.status === 'paid' || o.status === 'approved').reduce((a, o) => a + (o.amount || 0), 0);
   await ctx.reply(
-    `Users: ${users}\nPending payments: ${pending}\nKeys sold: ${sold}\nRevenue: ₹${(revenue / 100).toFixed(2)}`
+    `Users: ${Object.keys(state.users).length}\nPending: ${state.orders.filter((o) => o.status === 'pending_review').length}\nSold: ${state.orders.filter((o) => o.status === 'paid').length}\nRevenue: ₹${(revenue / 100).toFixed(2)}`
   );
 });
 
 bot.command('stock', async (ctx) => {
   if (!isAdmin(ctx)) return;
-  const lines = state.settings.plans.map((p) => {
-    const list = state.stock[p.id] || [];
-    return `${p.name}: ${list.filter((k) => !k.sold).length} available / ${list.length} total`;
-  });
-  await ctx.reply(lines.join('\n'));
+  await ctx.reply(
+    state.settings.plans
+      .map((p) => {
+        const l = state.stock[p.id] || [];
+        return `${p.name}: ${l.filter((k) => !k.sold).length} available / ${l.length}`;
+      })
+      .join('\n')
+  );
 });
 
 bot.command('sync', async (ctx) => {
   if (!isAdmin(ctx)) return;
-  const ok = await pushNow();
-  await ctx.reply(ok ? `Pushed rev ${state.rev}.` : 'Push failed.');
+  await ctx.reply((await pushNow()) ? `Pushed rev ${state.rev}.` : 'Push failed.');
 });
 
 bot.command('pull', async (ctx) => {
   if (!isAdmin(ctx)) return;
   const remote = await pullRemote();
   if (!remote) return ctx.reply('Nothing to pull.');
-  if ((remote.rev || 0) <= state.rev) {
-    return ctx.reply(`Remote rev ${remote.rev || 0} is not newer than local ${state.rev}.`);
-  }
+  if ((remote.rev || 0) <= state.rev) return ctx.reply(`Remote ${remote.rev} not newer than local ${state.rev}.`);
   state = normalize(remote);
   writeLocal();
   broadcast();
@@ -716,7 +644,7 @@ bot.command('pull', async (ctx) => {
 bot.command('addcredit', async (ctx) => {
   if (!isAdmin(ctx)) return;
   const [id, rupees] = ctx.message.text.split(/\s+/).slice(1);
-  if (!id || !rupees) return ctx.reply('Usage: /addcredit <userId> <rupees>');
+  if (!id || !rupees) return ctx.reply('Usage: /addcredit <id> <rupees>');
   const ok = await mutate((d) => {
     const u = d.users[id];
     if (!u) return false;
@@ -729,11 +657,11 @@ bot.command('addcredit', async (ctx) => {
 
 bot.command('setreseller', async (ctx) => {
   if (!isAdmin(ctx)) return;
-  const [id, flag] = ctx.message.text.split(/\s+/).slice(1);
+  const [id, f] = ctx.message.text.split(/\s+/).slice(1);
   const ok = await mutate((d) => {
     const u = d.users[id];
     if (!u) return false;
-    u.reseller = flag !== '0';
+    u.reseller = f !== '0';
     return true;
   });
   await ctx.reply(ok ? 'Updated.' : 'User not found.');
@@ -741,11 +669,11 @@ bot.command('setreseller', async (ctx) => {
 
 bot.command('ban', async (ctx) => {
   if (!isAdmin(ctx)) return;
-  const [id, flag] = ctx.message.text.split(/\s+/).slice(1);
+  const [id, f] = ctx.message.text.split(/\s+/).slice(1);
   const ok = await mutate((d) => {
     const u = d.users[id];
     if (!u) return false;
-    u.banned = flag !== '0';
+    u.banned = f !== '0';
     return true;
   });
   await ctx.reply(ok ? 'Updated.' : 'User not found.');
@@ -766,17 +694,13 @@ bot.command('broadcast', async (ctx) => {
   await ctx.reply(`Sent to ${sent}.`);
 });
 
-/* --------------------------------------------------------------- express */
+/* ------------------------------------------------------------------ panel */
 
 const app = express();
 
-if (PUBLIC_URL) {
-  app.use(bot.webhookCallback('/tg'));
-}
+app.get('/health', (req, res) => res.json({ ok: true, rev: state.rev, up: Math.floor(process.uptime()) }));
 
-app.get('/health', (req, res) =>
-  res.json({ ok: true, rev: state.rev, up: Math.floor(process.uptime()) })
-);
+if (PUBLIC_URL) app.use(bot.webhookCallback('/tg'));
 
 const api = express.Router();
 api.use(express.json({ limit: '4mb' }));
@@ -792,24 +716,23 @@ function cookies(req) {
   return out;
 }
 
-function sign(v) {
-  return crypto.createHmac('sha256', SESSION_SECRET).update(v).digest('hex');
-}
+const sign = (v) => crypto.createHmac('sha256', SESSION_SECRET).update(v).digest('hex');
 
 function authed(req) {
   const c = cookies(req).sid;
   if (!c) return false;
   const [v, s] = c.split('.');
-  if (!v || !s || sign(v).length !== s.length) return false;
-  if (!crypto.timingSafeEqual(Buffer.from(sign(v)), Buffer.from(s))) return false;
+  if (!v || !s) return false;
+  const want = Buffer.from(sign(v));
+  const got = Buffer.from(s);
+  if (want.length !== got.length) return false;
+  if (!crypto.timingSafeEqual(want, got)) return false;
   return Number(v) > Date.now();
 }
 
 function requireAuth(req, res, next) {
   if (!authed(req)) return res.status(401).json({ error: 'auth' });
-  if (req.method === 'POST' && req.get('x-panel') !== '1') {
-    return res.status(400).json({ error: 'missing x-panel' });
-  }
+  if (req.method === 'POST' && req.get('x-panel') !== '1') return res.status(400).json({ error: 'missing x-panel' });
   next();
 }
 
@@ -825,8 +748,7 @@ api.post('/login', (req, res) => {
 
   const given = Buffer.from(String(req.body.password || ''));
   const want = Buffer.from(PANEL_PASSWORD);
-  const ok =
-    given.length === want.length && crypto.timingSafeEqual(given, want);
+  const ok = given.length === want.length && crypto.timingSafeEqual(given, want);
 
   if (!ok) {
     rec.n++;
@@ -838,9 +760,7 @@ api.post('/login', (req, res) => {
   const exp = Date.now() + 8 * 3600 * 1000;
   res.setHeader(
     'Set-Cookie',
-    `sid=${exp}.${sign(String(exp))}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800${
-      PUBLIC_URL.startsWith('https') ? '; Secure' : ''
-    }`
+    `sid=${exp}.${sign(String(exp))}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800${PUBLIC_URL.startsWith('https') ? '; Secure' : ''}`
   );
   res.json({ ok: true });
 });
@@ -850,12 +770,12 @@ api.get('/me', requireAuth, (req, res) => res.json({ ok: true }));
 api.get('/state', requireAuth, (req, res) => {
   const s = snapshot();
   delete s.log;
+  delete s.pending;
   res.json(s);
 });
 
 api.get('/log', requireAuth, (req, res) => res.json(state.log.slice(-200).reverse()));
 
-/* live stream */
 const clients = new Set();
 
 function broadcast() {
@@ -884,9 +804,9 @@ api.get('/stream', requireAuth, (req, res) => {
 });
 
 api.get('/shot/:id', requireAuth, (req, res) => {
-  const order = state.orders.find((o) => o.id === req.params.id);
-  if (!order || !order.shot) return res.status(404).end();
-  const p = path.join(SHOT_DIR, path.basename(order.shot));
+  const o = state.orders.find((x) => x.id === req.params.id);
+  if (!o || !o.shot) return res.status(404).end();
+  const p = path.join(SHOT_DIR, path.basename(o.shot));
   if (!fs.existsSync(p)) return res.status(404).end();
   res.sendFile(p);
 });
@@ -902,16 +822,10 @@ api.post('/orders/:id/approve', requireAuth, async (req, res) => {
     log('approve', `${o.id} ₹${(o.amount / 100).toFixed(2)}`);
     return { ok: true, userId: o.userId, amount: o.amount };
   });
-
   if (out.err) return res.status(400).json(out);
-
   try {
-    await bot.telegram.sendMessage(
-      out.userId,
-      `Payment approved: ₹${(out.amount / 100).toFixed(2)} credited.`
-    );
+    await bot.telegram.sendMessage(out.userId, `Payment approved: ₹${(out.amount / 100).toFixed(2)} credited.`);
   } catch {}
-
   res.json({ ok: true });
 });
 
@@ -925,16 +839,10 @@ api.post('/orders/:id/reject', requireAuth, async (req, res) => {
     log('reject', o.id);
     return { ok: true, userId: o.userId };
   });
-
   if (out.err) return res.status(400).json(out);
-
   try {
-    await bot.telegram.sendMessage(
-      out.userId,
-      `Payment rejected${req.body.note ? ': ' + req.body.note : '.'}`
-    );
+    await bot.telegram.sendMessage(out.userId, `Payment rejected${req.body.note ? ': ' + req.body.note : '.'}`);
   } catch {}
-
   res.json({ ok: true });
 });
 
@@ -976,28 +884,27 @@ bot.action(/^rej:(.+)$/, async (ctx) => {
   } catch {}
 });
 
-/* users */
 api.post('/users/:id/balance', requireAuth, async (req, res) => {
   const rupees = Number(req.body.rupees || 0);
-  const out = await mutate((d) => {
+  const ok = await mutate((d) => {
     const u = d.users[req.params.id];
     if (!u) return false;
     u.balance += Math.round(rupees * 100);
     log('credit', `${req.params.id} ${rupees >= 0 ? '+' : ''}₹${rupees}`);
     return true;
   });
-  res.json({ ok: out });
+  res.json({ ok });
 });
 
 api.post('/users/:id/flags', requireAuth, async (req, res) => {
-  const out = await mutate((d) => {
+  const ok = await mutate((d) => {
     const u = d.users[req.params.id];
     if (!u) return false;
     if (typeof req.body.reseller === 'boolean') u.reseller = req.body.reseller;
     if (typeof req.body.banned === 'boolean') u.banned = req.body.banned;
     return true;
   });
-  res.json({ ok: out });
+  res.json({ ok });
 });
 
 api.post('/users/:id/message', requireAuth, async (req, res) => {
@@ -1009,14 +916,12 @@ api.post('/users/:id/message', requireAuth, async (req, res) => {
   }
 });
 
-/* stock — single source of truth */
 api.post('/stock/add', requireAuth, async (req, res) => {
   const planId = String(req.body.planId || '');
   const keys = String(req.body.keys || '')
     .split(/[\s,]+/)
     .map((k) => k.trim())
     .filter(Boolean);
-
   if (!keys.length) return res.status(400).json({ error: 'no keys' });
 
   const added = await mutate((d) => {
@@ -1031,7 +936,6 @@ api.post('/stock/add', requireAuth, async (req, res) => {
     log('stock', `+${n} to ${planId}`);
     return n;
   });
-
   res.json({ ok: true, added });
 });
 
@@ -1043,43 +947,32 @@ api.post('/stock/generate', requireAuth, async (req, res) => {
   await mutate((d) => {
     if (!Array.isArray(d.stock[planId])) d.stock[planId] = [];
     for (let i = 0; i < count; i++) {
-      d.stock[planId].push({
-        key: `${prefix}-${crypto.randomBytes(6).toString('hex').toUpperCase()}`,
-        sold: false,
-        soldTo: null,
-        soldAt: null,
-      });
+      d.stock[planId].push({ key: `${prefix}-${crypto.randomBytes(6).toString('hex').toUpperCase()}`, sold: false, soldTo: null, soldAt: null });
     }
     log('stock', `generated ${count} for ${planId}`);
   });
-
   res.json({ ok: true, added: count });
 });
 
 api.post('/stock/remove', requireAuth, async (req, res) => {
   const planId = String(req.body.planId || '');
-  const out = await mutate((d) => {
+  const removed = await mutate((d) => {
     const before = (d.stock[planId] || []).length;
     d.stock[planId] = (d.stock[planId] || []).filter((k) => k.sold);
     return before - d.stock[planId].length;
   });
-  res.json({ ok: true, removed: out });
+  res.json({ ok: true, removed });
 });
 
 api.get('/stock', requireAuth, (req, res) => {
   const out = {};
   for (const p of state.settings.plans) {
-    const list = state.stock[p.id] || [];
-    out[p.id] = {
-      available: list.filter((k) => !k.sold).length,
-      total: list.length,
-      unsold: list.filter((k) => !k.sold).slice(0, 50).map((k) => k.key),
-    };
+    const l = state.stock[p.id] || [];
+    out[p.id] = { available: l.filter((k) => !k.sold).length, total: l.length };
   }
   res.json(out);
 });
 
-/* settings */
 api.post('/settings', requireAuth, async (req, res) => {
   await mutate((d) => {
     const s = d.settings;
@@ -1092,33 +985,22 @@ api.post('/settings', requireAuth, async (req, res) => {
     if (Array.isArray(req.body.plans)) {
       s.plans = req.body.plans
         .filter((p) => p && p.id && p.name)
-        .map((p) => ({
-          id: String(p.id),
-          name: String(p.name).slice(0, 60),
-          price: Math.round(Number(p.price) * 100),
-          devices: Number(p.devices) || 1,
-        }));
+        .map((p) => ({ id: String(p.id), name: String(p.name).slice(0, 60), price: Math.round(Number(p.price)), devices: Number(p.devices) || 1 }));
       for (const p of s.plans) if (!Array.isArray(d.stock[p.id])) d.stock[p.id] = [];
     }
     if (Array.isArray(req.body.tiers)) {
-      s.tiers = req.body.tiers
-        .filter((t) => t && t.label)
-        .map((t) => ({ label: String(t.label).slice(0, 30), mult: Number(t.mult) || 1 }));
+      s.tiers = req.body.tiers.filter((t) => t && t.label).map((t) => ({ label: String(t.label).slice(0, 30), mult: Number(t.mult) || 1 }));
     }
   });
   res.json({ ok: true });
 });
 
-api.post('/sync/push', requireAuth, async (req, res) => {
-  res.json({ ok: await pushNow() });
-});
+api.post('/sync/push', requireAuth, async (req, res) => res.json({ ok: await pushNow() }));
 
 api.post('/sync/pull', requireAuth, async (req, res) => {
   const remote = await pullRemote();
   if (!remote) return res.status(400).json({ error: 'no remote' });
-  if ((remote.rev || 0) <= state.rev) {
-    return res.json({ ok: false, reason: 'local newer' });
-  }
+  if ((remote.rev || 0) <= state.rev) return res.json({ ok: false, reason: 'local newer' });
   state = normalize(remote);
   writeLocal();
   broadcast();
@@ -1127,20 +1009,12 @@ api.post('/sync/pull', requireAuth, async (req, res) => {
 
 app.use('/api', api);
 app.use(express.static(path.join(__dirname, 'public')));
-
 app.get('/panel', (req, res) => res.sendFile(path.join(__dirname, 'public', 'panel.html')));
 
-/* ------------------------------------------------------------------ boot */
+/* ------------------------------------------------------------------- boot */
 
 async function boot() {
   const local = readLocal();
-
-  // legacy stock.json migration (one time)
-  let legacy = null;
-  try {
-    legacy = JSON.parse(fs.readFileSync(LEGACY_STOCK, 'utf8'));
-  } catch {}
-
   if (local) {
     state = normalize(local);
   } else {
@@ -1149,53 +1023,51 @@ async function boot() {
     if (remote) state = normalize(remote);
   }
 
-  if (legacy && !state.legacyMerged) {
+  let legacy = null;
+  try {
+    legacy = JSON.parse(fs.readFileSync(LEGACY_STOCK, 'utf8'));
+  } catch {}
+  if (legacy) {
     for (const [planId, arr] of Object.entries(legacy)) {
       if (!Array.isArray(arr)) continue;
       if (!Array.isArray(state.stock[planId])) state.stock[planId] = [];
       const have = new Set(state.stock[planId].map((k) => k.key));
       for (const item of arr) {
         const key = typeof item === 'string' ? item : item.key;
-        if (key && !have.has(key)) {
-          state.stock[planId].push({ key, sold: false, soldTo: null, soldAt: null });
-        }
+        if (key && !have.has(key)) state.stock[planId].push({ key, sold: false, soldTo: null, soldAt: null });
       }
     }
-    state.legacyMerged = true;
     log('boot', 'legacy stock.json merged');
   }
 
   writeLocal();
 
-  // remote newer than local? take it.
   const remote = await pullRemote();
   if (remote && (remote.rev || 0) > state.rev) {
     state = normalize(remote);
     writeLocal();
   }
 
-  // launch
   if (PUBLIC_URL) {
-    await bot.telegram.setWebhook(`${PUBLIC_URL}/tg`, {
-      secret_token: crypto.createHash('sha256').update(SESSION_SECRET).digest('hex').slice(0, 32),
-      drop_pending_updates: false,
-    });
-    console.log('webhook set');
+    try {
+      await bot.telegram.setWebhook(`${PUBLIC_URL}/tg`, { drop_pending_updates: false });
+      const info = await bot.telegram.getWebhookInfo();
+      if (!info.url) throw new Error('webhook not registered');
+      console.log('webhook set:', info.url);
+    } catch (e) {
+      console.error('webhook failed, polling:', e.message);
+      await bot.telegram.deleteWebhook({ drop_pending_updates: false }).catch(() => {});
+      bot.launch({ dropPendingUpdates: false });
+    }
   } else {
     await bot.telegram.deleteWebhook({ drop_pending_updates: false }).catch(() => {});
     bot.launch({ dropPendingUpdates: false });
     console.log('polling');
   }
 
-  // self keep-warm
-  const self = PUBLIC_URL || RENDER_EXTERNAL_URL;
-  if (self) {
-    setInterval(() => {
-      fetch(`${self}/health`).catch(() => {});
-    }, 4 * 60 * 1000);
-  }
+  const self = PUBLIC_URL || RENDER_EXTERNAL_URL.replace(/\/+$/, '');
+  if (self) setInterval(() => fetch(`${self}/health`).catch(() => {}), 4 * 60 * 1000);
 
-  // heartbeat push if dirty
   setInterval(() => {
     if (pushTimer === null) pushNow().catch(() => {});
   }, 10 * 60 * 1000);
@@ -1208,11 +1080,8 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
-boot()
-  .then(() => {
-    app.listen(Number(PORT), () => console.log(`listening on ${PORT}`));
-  })
-  .catch((e) => {
-    console.error('boot failed', e);
-    process.exit(1);
-  });
+app.listen(Number(PORT), () => console.log(`listening on ${PORT}`));
+
+boot().catch((e) => {
+  console.error('boot failed', e);
+});
