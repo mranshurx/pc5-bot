@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 138,
-  "savedAt": "2026-11-13T15:47:32.431Z",
-  "reason": "panel",
+  "rev": 140,
+  "savedAt": "2026-11-13T15:48:26.809Z",
+  "reason": "auto",
   "state": {
-    "rev": 138,
+    "rev": 140,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -92,6 +92,18 @@
         "createdAt": "2026-11-13T14:32:50.434Z",
         "totalSpent": 0,
         "keyCount": 0
+      },
+      "7484035582": {
+        "id": 7484035582,
+        "username": "Amanss79",
+        "firstName": "Aman Singh",
+        "tier": "normal",
+        "credit": 0,
+        "banned": false,
+        "resellerSince": null,
+        "createdAt": "2026-11-13T15:48:22.646Z",
+        "totalSpent": 0,
+        "keyCount": 0
       }
     },
     "orders": {
@@ -159,6 +171,19 @@
         "key": "PC5-1HDNOL",
         "createdAt": "2026-11-13T14:33:33.474Z",
         "updatedAt": "2026-11-13T14:33:33.474Z"
+      },
+      "1006": {
+        "id": "1006",
+        "userId": 7484035582,
+        "username": "Amanss79",
+        "type": "topup",
+        "amount": 5000,
+        "status": "awaiting_payment",
+        "screenshotFileId": null,
+        "screenshotLocal": null,
+        "createdAt": "2026-11-13T15:48:22.647Z",
+        "updatedAt": "2026-11-13T15:48:22.647Z",
+        "note": ""
       }
     },
     "stock": {
@@ -2067,7 +2092,7 @@
       "githubLastError": ""
     },
     "counters": {
-      "nextOrder": 1006
+      "nextOrder": 1007
     },
     "log": []
   }
