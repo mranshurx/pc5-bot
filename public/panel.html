@@ -85,8 +85,13 @@
 <script>
 let S = null;
 let es = null;
+let tab = 'orders';
+let counts = {};
 
 const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const money = (p) => '₹' + (p / 100).toFixed(2);
+const when = (t) => new Date(t).toLocaleString();
 
 function toast(msg) {
   const t = $('toast');
@@ -122,7 +127,6 @@ async function login() {
 }
 
 async function logout() {
-  await fetch('/api/login', { method: 'POST' }).catch(() => {});
   document.cookie = 'sid=; Max-Age=0; Path=/';
   showLogin();
 }
@@ -147,7 +151,7 @@ function connect() {
     const d = JSON.parse(e.data);
     $('live').textContent = 'live';
     $('live').style.color = 'var(--ok)';
-    if (!S || d.rev !== S.rev) load();
+    if (!S || d.rev !== S.rev) load(true);
   });
   es.onerror = () => {
     $('live').textContent = 'reconnecting';
@@ -155,29 +159,29 @@ function connect() {
   };
 }
 
-async function load() {
+async function load(soft) {
   try {
     S = await call('GET', '/api/state');
+    counts = await call('GET', '/api/stock');
   } catch { return; }
   $('rev').textContent = 'rev ' + S.rev;
-  render();
+  render(soft);
 }
 
-function render() {
-  renderOrders();
-  renderUsers();
-  renderStock();
-  renderSettings();
-  if (!$('tab-log').classList.contains('hidden')) loadLog();
+function render(soft) {
+  if (!soft || tab === 'orders') renderOrders();
+  if (!soft || tab === 'users') renderUsers();
+  if (tab === 'stock') {
+    if (soft) updateCounts(); else renderStock();
+  }
+  if (tab === 'settings' && !soft) renderSettings();
+  if (tab === 'log') loadLog();
 }
-
-const money = (p) => '₹' + (p / 100).toFixed(2);
-const when = (t) => new Date(t).toLocaleString();
 
 function renderOrders() {
-  const orders = S.orders.slice().reverse();
-  const pending = orders.filter((o) => o.status === 'pending_review');
-  const rest = orders.filter((o) => o.status !== 'pending_review').slice(0, 60);
+  const all = S.orders.slice().reverse();
+  const pending = all.filter((o) => o.status === 'pending_review');
+  const rest = all.filter((o) => o.status !== 'pending_review').slice(0, 60);
 
   const row = (o, isPending) => `
     <tr>
@@ -203,25 +207,23 @@ function renderOrders() {
 
 function userLabel(id) {
   const u = S.users[id];
-  return u ? `${u.name}${u.username ? ' (@' + u.username + ')' : ''}<div class="dim mono">${id}</div>` : `<span class="mono dim">${id}</span>`;
+  return u ? `${esc(u.name)}${u.username ? ' (@' + esc(u.username) + ')' : ''}<div class="dim mono">${id}</div>` : `<span class="mono dim">${id}</span>`;
 }
 
-function zoom(src) {
-  $('modalImg').src = src;
-  $('modal').style.display = 'flex';
-}
+function zoom(src) { $('modalImg').src = src; $('modal').style.display = 'flex'; }
 
 async function approve(id) {
-  try { await call('POST', `/api/orders/${id}/approve`); toast('Approved'); } catch (e) { toast(e.message); }
+  try { await call('POST', `/api/orders/${id}/approve`); toast('Approved'); load(true); } catch (e) { toast(e.message); }
 }
+
 async function reject(id) {
   const note = prompt('Reason (optional)') || '';
-  try { await call('POST', `/api/orders/${id}/reject`, { note }); toast('Rejected'); } catch (e) { toast(e.message); }
+  try { await call('POST', `/api/orders/${id}/reject`, { note }); toast('Rejected'); load(true); } catch (e) { toast(e.message); }
 }
 
 function renderUsers() {
   const users = Object.values(S.users).sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
-  const online = users.filter((u) => Date.now() - (u.lastSeen || 0) < 5 * 60 * 1000).length;
+  const online = users.filter((u) => Date.now() - (u.lastSeen || 0) < 300000).length;
 
   $('tab-users').innerHTML = `
     <div class="card">
@@ -229,7 +231,7 @@ function renderUsers() {
       <table style="margin-top:8px"><thead><tr><th>User</th><th>Balance</th><th>Flags</th><th>Last seen</th><th>Actions</th></tr></thead><tbody>
       ${users.map((u) => `
         <tr>
-          <td>${u.name}${u.username ? ' (@' + u.username + ')' : ''}<div class="dim mono">${u.id}</div></td>
+          <td>${esc(u.name)}${u.username ? ' (@' + esc(u.username) + ')' : ''}<div class="dim mono">${u.id}</div></td>
           <td>${money(u.balance)}</td>
           <td>${u.reseller ? '<span class="pill">reseller</span> ' : ''}${u.banned ? '<span class="pill rejected">banned</span>' : ''}</td>
           <td class="dim">${u.lastSeen ? when(u.lastSeen) : '-'}</td>
@@ -247,10 +249,10 @@ function renderUsers() {
 async function credit(id) {
   const v = prompt('Amount in rupees (negative to deduct)');
   if (!v) return;
-  try { await call('POST', `/api/users/${id}/balance`, { rupees: Number(v) }); toast('Updated'); } catch (e) { toast(e.message); }
+  try { await call('POST', `/api/users/${id}/balance`, { rupees: Number(v) }); toast('Updated'); load(true); } catch (e) { toast(e.message); }
 }
 async function flag(id, key, val) {
-  try { await call('POST', `/api/users/${id}/flags`, { [key]: val }); toast('Updated'); } catch (e) { toast(e.message); }
+  try { await call('POST', `/api/users/${id}/flags`, { [key]: val }); toast('Updated'); load(true); } catch (e) { toast(e.message); }
 }
 async function dm(id) {
   const text = prompt('Message');
@@ -258,24 +260,21 @@ async function dm(id) {
   try { await call('POST', `/api/users/${id}/message`, { text }); toast('Sent'); } catch (e) { toast(e.message); }
 }
 
-async function renderStock() {
-  let counts = {};
-  try { counts = await call('GET', '/api/stock'); } catch {}
-
+function renderStock() {
   $('tab-stock').innerHTML = `
     <div class="card">
       <strong>Stock</strong>
-      <table style="margin-top:8px"><thead><tr><th>Plan</th><th>Available</th><th>Total</th></tr></thead><tbody>
+      <table style="margin-top:8px"><thead><tr><th>Plan</th><th>Available</th><th>Total</th></tr></thead><tbody id="stockRows">
       ${S.settings.plans.map((p) => {
         const c = counts[p.id] || { available: 0, total: 0 };
-        return `<tr><td>${p.name}<div class="dim mono">${p.id}</div></td><td>${c.available}</td><td>${c.total}</td></tr>`;
+        return `<tr data-plan="${p.id}"><td>${esc(p.name)}<div class="dim mono">${p.id}</div></td><td class="av">${c.available}</td><td>${c.total}</td></tr>`;
       }).join('')}
       </tbody></table>
     </div>
     <div class="card">
       <strong>Add keys</strong>
       <div class="row" style="margin:8px 0">
-        <select id="stockPlan" style="flex:1">${S.settings.plans.map((p) => `<option value="${p.id}">${p.name}</option>`).join('')}</select>
+        <select id="stockPlan">${S.settings.plans.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
       </div>
       <textarea id="stockKeys" placeholder="One key per line, or comma separated"></textarea>
       <div class="row" style="margin-top:8px">
@@ -288,27 +287,43 @@ async function renderStock() {
     </div>`;
 }
 
+function updateCounts() {
+  for (const p of S.settings.plans) {
+    const row = document.querySelector(`#stockRows tr[data-plan="${p.id}"]`);
+    if (!row) continue;
+    const c = counts[p.id] || { available: 0, total: 0 };
+    row.querySelector('.av').textContent = c.available;
+    row.lastElementChild.textContent = c.total;
+  }
+}
+
 async function addKeys() {
   const planId = $('stockPlan').value;
   const keys = $('stockKeys').value;
+  if (!keys.trim()) return toast('Paste keys first');
   try {
     const r = await call('POST', '/api/stock/add', { planId, keys });
     $('stockKeys').value = '';
     toast(`Added ${r.added}`);
+    load(true);
   } catch (e) { toast(e.message); }
 }
+
 async function genKeys() {
   const planId = $('stockPlan').value;
   try {
     const r = await call('POST', '/api/stock/generate', { planId, count: Number($('genCount').value), prefix: $('genPrefix').value });
     toast(`Generated ${r.added}`);
+    load(true);
   } catch (e) { toast(e.message); }
 }
+
 async function purgeSold() {
   const planId = $('stockPlan').value;
   try {
     const r = await call('POST', '/api/stock/remove', { planId });
     toast(`Removed ${r.removed} sold`);
+    load(true);
   } catch (e) { toast(e.message); }
 }
 
@@ -332,8 +347,8 @@ function renderSettings() {
       <table style="margin-top:8px"><thead><tr><th>ID</th><th>Name</th><th>Price ₹</th><th></th></tr></thead><tbody>
       ${s.plans.map((p, i) => `<tr>
         <td class="mono">${p.id}</td>
-        <td><input value="${esc(p.name)}" onchange="S.settings.plans[${i}].name=this.value" /></td>
-        <td><input type="number" value="${p.price / 100}" onchange="S.settings.plans[${i}].price=Math.round(this.value*100)" /></td>
+        <td><input value="${esc(p.name)}" oninput="S.settings.plans[${i}].name=this.value" /></td>
+        <td><input type="number" value="${p.price / 100}" oninput="S.settings.plans[${i}].price=Math.round(this.value*100)" /></td>
         <td><button class="bad" onclick="S.settings.plans.splice(${i},1);renderSettings()">×</button></td>
       </tr>`).join('')}
       </tbody></table>
@@ -349,10 +364,8 @@ function renderSettings() {
     </div>`;
 }
 
-const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-
 function addPlan() {
-  const id = 'p' + (S.settings.plans.length + 1) + '_' + Date.now().toString(36).slice(-3);
+  const id = 'p' + Date.now().toString(36).slice(-5);
   S.settings.plans.push({ id, name: 'New plan', price: 1000, devices: 1 });
   renderSettings();
 }
@@ -370,6 +383,7 @@ async function saveSettings() {
       tiers: S.settings.tiers,
     });
     toast('Saved');
+    load(true);
   } catch (e) { toast(e.message); }
 }
 
@@ -377,23 +391,24 @@ async function push() {
   try { const r = await call('POST', '/api/sync/push'); $('syncMsg').textContent = r.ok ? 'pushed' : 'failed'; } catch (e) { $('syncMsg').textContent = e.message; }
 }
 async function pull() {
-  try { const r = await call('POST', '/api/sync/pull'); $('syncMsg').textContent = r.ok ? 'pulled' : r.reason; } catch (e) { $('syncMsg').textContent = e.message; }
+  try { const r = await call('POST', '/api/sync/pull'); $('syncMsg').textContent = r.ok ? 'pulled' : r.reason; load(); } catch (e) { $('syncMsg').textContent = e.message; }
 }
 
 async function loadLog() {
   let log = [];
   try { log = await call('GET', '/api/log'); } catch {}
-  $('tab-log').innerHTML = `<div class="card mono">${log.map((l) => `<div>${new Date(l.at).toLocaleTimeString()} · ${l.kind} · ${esc(l.text)}</div>`).join('') || '<span class="dim">Empty</span>'}</div>`;
+  $('tab-log').innerHTML = `<div class="card mono">${log.map((l) => `<div>${new Date(l.at).toLocaleTimeString()} · ${esc(l.kind)} · ${esc(l.text)}</div>`).join('') || '<span class="dim">Empty</span>'}</div>`;
 }
 
 document.querySelectorAll('.tabs button').forEach((b) => {
   b.onclick = () => {
     document.querySelectorAll('.tabs button').forEach((x) => x.classList.remove('active'));
     b.classList.add('active');
+    tab = b.dataset.tab;
     for (const t of ['orders', 'users', 'stock', 'settings', 'log']) {
-      $('tab-' + t).classList.toggle('hidden', t !== b.dataset.tab);
+      $('tab-' + t).classList.toggle('hidden', t !== tab);
     }
-    if (b.dataset.tab === 'log') loadLog();
+    render(false);
   };
 });
 
