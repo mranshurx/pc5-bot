@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 101,
-  "savedAt": "2026-11-13T14:29:45.360Z",
+  "rev": 103,
+  "savedAt": "2026-11-13T14:31:15.592Z",
   "reason": "auto",
   "state": {
-    "rev": 101,
+    "rev": 103,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -78,7 +78,7 @@
         "createdAt": "2026-11-13T14:04:08.371Z",
         "totalSpent": 0,
         "keyCount": 0,
-        "lastSeen": "2026-11-13T14:29:41.038Z"
+        "lastSeen": "2026-11-13T14:31:11.402Z"
       }
     },
     "orders": {
@@ -105,6 +105,19 @@
         "screenshotLocal": "1002.jpg",
         "createdAt": "2026-11-13T14:28:31.354Z",
         "updatedAt": "2026-11-13T14:28:51.298Z",
+        "note": ""
+      },
+      "1003": {
+        "id": "1003",
+        "userId": 8601285872,
+        "username": "CYBERxANGSHU",
+        "type": "topup",
+        "amount": 5000,
+        "status": "awaiting_payment",
+        "screenshotFileId": null,
+        "screenshotLocal": null,
+        "createdAt": "2026-11-13T14:31:11.402Z",
+        "updatedAt": "2026-11-13T14:31:11.402Z",
         "note": ""
       }
     },
@@ -2004,7 +2017,7 @@
       "githubLastError": ""
     },
     "counters": {
-      "nextOrder": 1003
+      "nextOrder": 1004
     },
     "log": []
   }
