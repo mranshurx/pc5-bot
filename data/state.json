@@ -1,0 +1,110 @@
+{
+  "app": "pc5-bot",
+  "version": 4,
+  "rev": 0,
+  "savedAt": "2026-11-13T09:35:19.365Z",
+  "reason": "boot",
+  "state": {
+    "rev": 0,
+    "users": {},
+    "orders": {},
+    "stock": {},
+    "pricing": {
+      "resellerFee": 15000,
+      "unlimitedMultiplier": 1.5,
+      "plans": [
+        {
+          "id": "1h",
+          "hours": 1,
+          "label": "1 Hour",
+          "retail": 700,
+          "reseller": 500,
+          "on": true
+        },
+        {
+          "id": "3h",
+          "hours": 3,
+          "label": "3 Hours",
+          "retail": 900,
+          "reseller": 700,
+          "on": true
+        },
+        {
+          "id": "6h",
+          "hours": 6,
+          "label": "6 Hours",
+          "retail": 1200,
+          "reseller": 900,
+          "on": true
+        },
+        {
+          "id": "12h",
+          "hours": 12,
+          "label": "12 Hours",
+          "retail": 1400,
+          "reseller": 1000,
+          "on": true
+        },
+        {
+          "id": "1d",
+          "hours": 24,
+          "label": "1 Day",
+          "retail": 1900,
+          "reseller": 1400,
+          "on": true
+        },
+        {
+          "id": "3d",
+          "hours": 72,
+          "label": "3 Days",
+          "retail": 3200,
+          "reseller": 2400,
+          "on": true
+        },
+        {
+          "id": "7d",
+          "hours": 168,
+          "label": "7 Days",
+          "retail": 5500,
+          "reseller": 4200,
+          "on": true
+        },
+        {
+          "id": "14d",
+          "hours": 336,
+          "label": "14 Days",
+          "retail": 8200,
+          "reseller": 6200,
+          "on": true
+        },
+        {
+          "id": "30d",
+          "hours": 720,
+          "label": "30 Days",
+          "retail": 14900,
+          "reseller": 11200,
+          "on": true
+        }
+      ]
+    },
+    "settings": {
+      "upiId": "saikia2026@fam",
+      "upiName": "PC5 ANDROID",
+      "botMaintenance": false,
+      "maintenanceMsg": "Bot is under maintenance. Try again shortly.",
+      "minTopup": 2000,
+      "maxTopup": 500000,
+      "ghAutoSync": true,
+      "githubRepo": "mranshurx/pc5-bot",
+      "githubPath": "data/state.json",
+      "githubBranch": "main",
+      "githubLastSync": "",
+      "githubLastRev": 0,
+      "githubLastError": ""
+    },
+    "counters": {
+      "nextOrder": 1001
+    },
+    "log": []
+  }
+}
