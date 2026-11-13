@@ -15,7 +15,19 @@ const PORT = Number(process.env.PORT || 8080);
 const QR_FILE = path.join(__dirname, 'public', 'qr.jpg');
 const isAdmin = id => ADMIN_IDS.includes(Number(id));
 
+const QR_TIMEOUT = 12000;          // max ms to wait for a QR upload
+const TG_TIMEOUT = 20000;          // max ms for any Telegram API call
+const SHOT_TTL = 15 * 60 * 1000;   // how long a "waiting for screenshot" state lives
+
 if (!BOT_TOKEN) { console.error('BOT_TOKEN missing in .env'); process.exit(1); }
+
+const withTimeout = (promise, ms, label) => {
+  let t;
+  return Promise.race([
+    promise.finally(() => clearTimeout(t)),
+    new Promise((_, rej) => { t = setTimeout(() => rej(new Error(label + ' timed out')), ms); })
+  ]);
+};
 
 /* ================= PRICING ================= */
 const DEFAULT_PRICING = () => ({
@@ -103,15 +115,17 @@ function log(actor, text) {
   if (state.log.length > 500) state.log = state.log.slice(-500);
 }
 
+/* queue never stays rejected, so one bad mutation can't wedge the bot */
 function mutate(fn) {
-  queue = queue.then(async () => {
+  const run = queue.then(async () => {
     const work = clone(state);
     const out = await fn(work);
     writeSync(work);
     state = work;
     return out;
-  }, () => {});
-  return queue;
+  });
+  queue = run.then(() => {}, () => {});
+  return run;
 }
 
 function ensureUser(s, from) {
@@ -243,34 +257,54 @@ async function pullStock() {
 
 /* ================= BOT ================= */
 const bot = new Telegraf(BOT_TOKEN);
+try { bot.telegram.options.timeout = TG_TIMEOUT; } catch {}
+
 const pending = new Map();
 
 const BTN = { buy: '🛒 Buy Key', credit: '➕ Add Credit', balance: '💰 Balance', mykeys: '🔑 My Keys', reseller: '🏪 Reseller', help: '❓ Help' };
 const menu = () => Markup.keyboard([[BTN.buy, BTN.credit], [BTN.balance, BTN.mykeys], [BTN.reseller, BTN.help]]).resize();
 
-const PAY_MSG = 'PAY THE SELECTED AMOUNT AND UPLOAD THE PAYMENT SCREENSHOT HERE';
+const PAY_MSG = 'PAY THE SELECTED AMOUNT AND UPLOAD THE PAYMENT SCREENSHOT';
 
 async function notifyAdmins(text, opts = {}) {
   for (const a of ADMIN_IDS) bot.telegram.sendMessage(a, text, opts).catch(() => {});
 }
 
-/* sends public/qr.jpg; falls back to a generated UPI QR, then to plain text */
-async function sendPaymentQr(ctx, caption, upiAmount, note) {
+function setPending(uid, data) {
+  pending.set(uid, { ...data, at: Date.now() });
+}
+
+function getPending(uid) {
+  const p = pending.get(uid);
+  if (!p) return null;
+  if (Date.now() - p.at > SHOT_TTL) { pending.delete(uid); return null; }
+  return p;
+}
+
+/* QR upload is bounded and never blocks the caller */
+async function sendPaymentQr(ctx, amount, orderId) {
+  const caption = `Scan & pay *${inr(amount)}* · Order #${orderId}`;
+  const opts = { caption, parse_mode: 'Markdown' };
+  const note = `PC5-${orderId}`;
+
   if (fs.existsSync(QR_FILE)) {
     try {
-      return await ctx.replyWithPhoto({ source: fs.createReadStream(QR_FILE) }, { caption, parse_mode: 'Markdown' });
-    } catch (e) {
-      console.warn('qr.jpg failed:', e.message);
-    }
+      return await withTimeout(
+        ctx.replyWithPhoto({ source: fs.createReadStream(QR_FILE) }, opts),
+        QR_TIMEOUT, 'qr.jpg'
+      );
+    } catch (e) { console.warn('qr.jpg send failed:', e.message); }
   }
-  if (state.settings.upiId) {
+
+  if (state.settings.upiId && state.settings.upiId !== 'PUT-YOUR-UPI-HERE') {
     try {
-      const upi = `upi://pay?pa=${encodeURIComponent(state.settings.upiId)}&pn=${encodeURIComponent(state.settings.upiName)}&am=${(upiAmount / 100).toFixed(2)}&cu=INR&tn=${encodeURIComponent(note)}`;
+      const upi = `upi://pay?pa=${encodeURIComponent(state.settings.upiId)}&pn=${encodeURIComponent(state.settings.upiName)}&am=${(amount / 100).toFixed(2)}&cu=INR&tn=${encodeURIComponent(note)}`;
       const png = await QRCode.toBuffer(upi, { width: 640, margin: 1 });
-      return await ctx.replyWithPhoto({ source: png }, { caption, parse_mode: 'Markdown' });
-    } catch {}
+      return await withTimeout(ctx.replyWithPhoto({ source: png }, opts), QR_TIMEOUT, 'upi qr');
+    } catch (e) { console.warn('generated qr send failed:', e.message); }
   }
-  return ctx.reply(caption, { parse_mode: 'Markdown' });
+
+  return null;
 }
 
 bot.use(async (ctx, next) => {
@@ -321,6 +355,7 @@ bot.hears(BTN.credit, async ctx => {
     { parse_mode: 'Markdown', ...Markup.inlineKeyboard(rows) });
 });
 
+/* order is created, state is armed, text goes out instantly, QR follows */
 async function makeTopup(ctx, amount) {
   const out = await mutate(s => {
     const u = ensureUser(s, ctx.from);
@@ -336,36 +371,48 @@ async function makeTopup(ctx, amount) {
     return { order: s.orders[id], upiId: s.settings.upiId };
   });
 
+  setPending(ctx.from.id, { action: 'shot', orderId: out.order.id });
+
   const caption =
     `*Order #${out.order.id}* · *${inr(amount)}*\n\n` +
     `${PAY_MSG}\n\n` +
-    (out.upiId ? `UPI: \`${out.upiId}\`\n` : '') +
+    (out.upiId && out.upiId !== 'PUT-YOUR-UPI-HERE' ? `UPI: \`${out.upiId}\`\n` : '') +
     `Order note: \`PC5-${out.order.id}\``;
 
-  await sendPaymentQr(ctx, caption, amount, `PC5-${out.order.id}`);
-  pending.set(ctx.from.id, { action: 'shot', orderId: out.order.id });
+  await ctx.reply(caption, { parse_mode: 'Markdown' });
+  sendPaymentQr(ctx, amount, out.order.id).catch(() => {});
 }
 
 bot.action(/^tup:(\d+)$/, async ctx => {
-  await ctx.answerCbQuery();
-  try { await makeTopup(ctx, Number(ctx.match[1])); } catch (e) { ctx.reply(e.message); }
+  await ctx.answerCbQuery().catch(() => {});
+  try { await makeTopup(ctx, Number(ctx.match[1])); }
+  catch (e) { ctx.reply(e.message || 'Could not start order.').catch(() => {}); }
 });
 
 bot.action('tup:custom', async ctx => {
-  await ctx.answerCbQuery();
-  pending.set(ctx.from.id, { action: 'amount' });
+  await ctx.answerCbQuery().catch(() => {});
+  setPending(ctx.from.id, { action: 'amount' });
   await ctx.reply(`Send the rupee amount (${inr(state.settings.minTopup)}–${inr(state.settings.maxTopup)}):`);
 });
 
+/* ---- screenshot ---- */
 bot.on(['photo', 'document'], async ctx => {
-  const st = pending.get(ctx.from.id);
-  const open = Object.values(state.orders)
-    .filter(o => o.userId === Number(ctx.from.id) && o.type !== 'key' && o.status === 'awaiting_payment')
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const order = (st && st.orderId && state.orders[st.orderId]) || open[0];
-  if (!order || order.status !== 'awaiting_payment') return ctx.reply('No open order. Press ➕ Add Credit.');
+  const st = getPending(ctx.from.id);
+
+  const isImageDoc = !ctx.message.document || /^image\//.test(ctx.message.document.mime_type || '');
+  if (ctx.message.document && !isImageDoc) return ctx.reply('Send an image (screenshot), not a file.');
+
+  let order = st && st.action === 'shot' ? state.orders[st.orderId] : null;
+
+  if (!order || order.status !== 'awaiting_payment') {
+    order = Object.values(state.orders)
+      .filter(o => o.userId === Number(ctx.from.id) && o.type !== 'key' && o.status === 'awaiting_payment')
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  }
+  if (!order) return ctx.reply('No open order. Press ➕ Add Credit.');
 
   const fileId = ctx.message.photo ? ctx.message.photo.at(-1).file_id : ctx.message.document.file_id;
+
   await mutate(s => {
     const o = s.orders[order.id];
     o.screenshotFileId = fileId;
@@ -374,6 +421,7 @@ bot.on(['photo', 'document'], async ctx => {
     log(ctx.from.id, `order ${order.id} proof`);
   });
   pending.delete(ctx.from.id);
+
   await ctx.reply(`✅ Proof received for #${order.id}. Waiting for approval.`);
 
   const cap = `💳 *${order.type === 'reseller' ? 'Reseller' : 'Top-up'} #${order.id}*\nUser: ${order.userId}\nAmount: *${inr(order.amount)}*`;
@@ -408,7 +456,7 @@ bot.action(/^ord:ok:(.+)$/, async ctx => {
 
 bot.action(/^ord:no:(.+)$/, async ctx => {
   if (!isAdmin(ctx.from.id)) return ctx.answerCbQuery('Admins only');
-  pending.set(ctx.from.id, { action: 'reason', orderId: ctx.match[1] });
+  setPending(ctx.from.id, { action: 'reason', orderId: ctx.match[1] });
   await ctx.answerCbQuery();
   await ctx.reply(`Reason for #${ctx.match[1]}? ("-" to skip)`);
 });
@@ -519,26 +567,29 @@ bot.action('rsl', async ctx => {
     return s.orders[id];
   });
 
+  setPending(ctx.from.id, { action: 'shot', orderId: order.id });
+
   const caption =
     `*Reseller #${order.id}* · *${inr(fee)}*\n\n` +
     `${PAY_MSG}\n\n` +
-    (state.settings.upiId ? `UPI: \`${state.settings.upiId}\`\n` : '') +
+    (state.settings.upiId && state.settings.upiId !== 'PUT-YOUR-UPI-HERE' ? `UPI: \`${state.settings.upiId}\`\n` : '') +
     `Order note: \`PC5RSL-${order.id}\``;
 
-  await sendPaymentQr(ctx, caption, fee, `PC5RSL-${order.id}`);
-  pending.set(ctx.from.id, { action: 'shot', orderId: order.id });
+  await ctx.reply(caption, { parse_mode: 'Markdown' });
+  sendPaymentQr(ctx, fee, order.id).catch(() => {});
 });
 
 /* ---- text states ---- */
 bot.on('text', async ctx => {
-  const st = pending.get(ctx.from.id);
+  const st = getPending(ctx.from.id);
   if (!st) return;
 
   if (st.action === 'amount') {
     const r = Number(ctx.message.text.replace(/[^\d.]/g, ''));
     if (!r) return ctx.reply('Send a number.');
     pending.delete(ctx.from.id);
-    try { await makeTopup(ctx, Math.round(r * 100)); } catch (e) { ctx.reply(e.message); }
+    try { await makeTopup(ctx, Math.round(r * 100)); }
+    catch (e) { ctx.reply(e.message || 'Failed.').catch(() => {}); }
     return;
   }
   if (st.action === 'reason' && isAdmin(ctx.from.id)) {
@@ -612,7 +663,7 @@ bot.catch((e, ctx) => { console.error('[bot]', e.message); ctx.reply('Error.').c
 
 /* ================= WEB PANEL ================= */
 const app = express();
-app.use(express.json({ limit: '8mb' }));
+app.use(express.json({ limit: '12mb' }));
 
 const sessions = new Map();
 const shots = new Map();
@@ -692,7 +743,7 @@ app.post('/api/qr', guard, async (req, res) => {
   if (!m) return res.status(400).json({ error: 'unsupported image' });
   const buf = Buffer.from(m[2].replace(/\s/g, ''), 'base64');
   if (!buf.length) return res.status(400).json({ error: 'empty image' });
-  if (buf.length > 6 * 1024 * 1024) return res.status(400).json({ error: 'too large (max 6MB)' });
+  if (buf.length > 8 * 1024 * 1024) return res.status(400).json({ error: 'too large (max 8MB)' });
   fs.mkdirSync(path.dirname(QR_FILE), { recursive: true });
   fs.writeFileSync(QR_FILE, buf);
   await mutate(s => log('panel', 'qr updated'));
