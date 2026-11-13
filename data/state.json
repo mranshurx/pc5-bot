@@ -1,11 +1,11 @@
 {
   "app": "pc5-bot",
   "version": 4,
-  "rev": 9,
-  "savedAt": "2026-11-13T10:42:57.694Z",
+  "rev": 11,
+  "savedAt": "2026-11-13T10:43:35.015Z",
   "reason": "auto",
   "state": {
-    "rev": 9,
+    "rev": 11,
     "users": {
       "8976681197": {
         "id": 8976681197,
@@ -40,6 +40,18 @@
         "banned": false,
         "resellerSince": null,
         "createdAt": "2026-11-13T10:42:53.692Z",
+        "totalSpent": 0,
+        "keyCount": 0
+      },
+      "8745407828": {
+        "id": 8745407828,
+        "username": "Unfair_ExE_07",
+        "firstName": "Ashish❣️",
+        "tier": "normal",
+        "credit": 0,
+        "banned": false,
+        "resellerSince": null,
+        "createdAt": "2026-11-13T10:43:31.013Z",
         "totalSpent": 0,
         "keyCount": 0
       }
