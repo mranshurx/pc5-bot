@@ -2,7 +2,7 @@
   "app": "pc5-bot",
   "version": 4,
   "rev": 17,
-  "savedAt": "2026-11-13T12:33:18.393Z",
+  "savedAt": "2026-11-13T12:33:56.620Z",
   "reason": "auto",
   "state": {
     "rev": 17,
@@ -175,7 +175,7 @@
         "planId": "1h",
         "deviceLimit": "single",
         "status": "available",
-        "addedAt": "2026-11-13T12:33:14.389Z",
+        "addedAt": "2026-11-13T12:33:52.617Z",
         "soldAt": null,
         "soldTo": null,
         "orderId": null
@@ -185,7 +185,7 @@
         "planId": "1h",
         "deviceLimit": "single",
         "status": "available",
-        "addedAt": "2026-11-13T12:33:14.389Z",
+        "addedAt": "2026-11-13T12:33:52.617Z",
         "soldAt": null,
         "soldTo": null,
         "orderId": null
@@ -195,7 +195,7 @@
         "planId": "1h",
         "deviceLimit": "single",
         "status": "available",
-        "addedAt": "2026-11-13T12:33:14.389Z",
+        "addedAt": "2026-11-13T12:33:52.617Z",
         "soldAt": null,
         "soldTo": null,
         "orderId": null
@@ -205,7 +205,7 @@
         "planId": "1h",
         "deviceLimit": "single",
         "status": "available",
-        "addedAt": "2026-11-13T12:33:14.389Z",
+        "addedAt": "2026-11-13T12:33:52.617Z",
         "soldAt": null,
         "soldTo": null,
         "orderId": null
@@ -215,7 +215,7 @@
         "planId": "1h",
         "deviceLimit": "single",
         "status": "available",
-        "addedAt": "2026-11-13T12:33:14.389Z",
+        "addedAt": "2026-11-13T12:33:52.617Z",
         "soldAt": null,
         "soldTo": null,
         "orderId": null
@@ -225,7 +225,7 @@
         "planId": "1h",
         "deviceLimit": "single",
         "status": "available",
-        "addedAt": "2026-11-13T12:33:14.389Z",
+        "addedAt": "2026-11-13T12:33:52.617Z",
         "soldAt": null,
         "soldTo": null,
         "orderId": null
@@ -235,7 +235,7 @@
         "planId": "1h",
         "deviceLimit": "single",
         "status": "available",
-        "addedAt": "2026-11-13T12:33:14.389Z",
+        "addedAt": "2026-11-13T12:33:52.617Z",
         "soldAt": null,
         "soldTo": null,
         "orderId": null
@@ -245,7 +245,7 @@
         "planId": "1h",
         "deviceLimit": "single",
         "status": "available",
-        "addedAt": "2026-11-13T12:33:14.389Z",
+        "addedAt": "2026-11-13T12:33:52.617Z",
         "soldAt": null,
         "soldTo": null,
         "orderId": null
@@ -255,7 +255,7 @@
         "planId": "1h",
         "deviceLimit": "single",
         "status": "available",
-        "addedAt": "2026-11-13T12:33:14.389Z",
+        "addedAt": "2026-11-13T12:33:52.617Z",
         "soldAt": null,
         "soldTo": null,
         "orderId": null
@@ -265,7 +265,7 @@
         "planId": "1h",
         "deviceLimit": "single",
         "status": "available",
-        "addedAt": "2026-11-13T12:33:14.389Z",
+        "addedAt": "2026-11-13T12:33:52.617Z",
         "soldAt": null,
         "soldTo": null,
         "orderId": null
@@ -360,8 +360,8 @@
       "githubRepo": "mranshurx/pc5-bot",
       "githubPath": "data/state.json",
       "githubBranch": "main",
-      "githubLastSync": "2026-11-13T12:32:52.624Z",
-      "githubLastRev": 15,
+      "githubLastSync": "",
+      "githubLastRev": 0,
       "githubLastError": ""
     },
     "counters": {
